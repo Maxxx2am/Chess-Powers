@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+<script src="/socket.io/socket.io.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CHESS: DECEPTION & AUGMENTATION</title>
@@ -472,6 +472,13 @@
 
 <!-- TOOLTIP -->
 <div id="ability-tooltip"></div>
+
+const socket = io();
+
+socket.on('move', (data) => {
+    // This allows the move from your friend to happen on your screen
+    executeMove(data.fromRow, data.fromCol, data.toRow, data.toCol, data.moveData, true);
+});
 
 <script>
 // =====================================================
@@ -1308,7 +1315,10 @@ function showPieceInfo(piece) {
 // =====================================================
 // MOVE EXECUTION
 // =====================================================
-function executeMove(fromRow, fromCol, toRow, toCol, moveData) {
+function executeMove(fromRow, fromCol, toRow, toCol, moveData, isRemote = false) {
+  if (!isRemote) {
+    socket.emit('move', { fromRow, fromCol, toRow, toCol, moveData });
+  }
   // Save state for undo
   state.prevBoard = deepCloneBoard();
   state.prevCaptured = { 1:[...state.capturedBy[1]], 2:[...state.capturedBy[2]] };
