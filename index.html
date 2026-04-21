@@ -596,7 +596,8 @@ const ABILITIES = [
   { id:'architect', name:'Architect', cat:'support', icon:'🧱', desc:'Turn an adjacent empty square into a Wall for 2 turns. Activate as action.', once:true },
   // CHAOS
   { id:'timewarp', name:'Time Warp', cat:'chaos', icon:'⏪', desc:'Undo the last move. Once per game.', once:true },
-  { id:'imposter', name:'Imposter', cat:'chaos', icon:'🎭', desc:'Appears as an enemy piece type to the opponent.', once:false },
+  { id:'imposter', name:'Imposter', cat:'chaos', icon:'🎭', desc:'Appears as an enemy piece type to the opponent.', once:false, isImposter:true },
+  { id:'phantom', name:'Phantom', cat:'chaos', icon:'👻', desc:'The opponent knows you have this ability, but not which piece has it.', once:false, isImposter:true },
   { id:'greed', name:'Greed', cat:'chaos', icon:'💎', desc:'Earn an extra ability orb if this piece captures a Queen.', once:false },
   { id:'curse', name:'Curse', cat:'chaos', icon:'☠', desc:'Pieces captured by this piece cannot be revived by Medic.', once:false },
   { id:'voodoo', name:'Voodoo', cat:'chaos', icon:'🪆', desc:'Damage to this piece is also applied to the enemy King (loses 1 HP sim).', once:false },
@@ -756,19 +757,27 @@ function renderArmory() {
   const ag = document.getElementById('ability-grid');
   ag.innerHTML = '';
   const orbsLeftNow = state.orbCount - state.orbsUsed[p];
+  
+  const currentImposters = Object.values(state.armoryDraft[p]).filter(a => a.isImposter).length;
+  const imposterLimit = state.orbCount > 10 ? 2 : 1;
+
   ABILITIES.forEach(ab => {
     const usedByOther = Object.entries(state.armoryDraft[p]).some(([k,v]) => v && v.id === ab.id && k !== state.selectedDraftPiece);
     const assignedToThis = state.armoryDraft[p][state.selectedDraftPiece]?.id === ab.id;
     const canAfford = orbsLeftNow > 0 || assignedToThis;
     const isSelected = state.selectedAbility === ab.id;
+    
+    // Limit check for imposters
+    const overImposterLimit = ab.isImposter && currentImposters >= imposterLimit && !assignedToThis;
 
     const card = document.createElement('div');
-    card.className = 'ability-card' + (isSelected||assignedToThis?' selected-ability':'') + (usedByOther||(!canAfford&&!assignedToThis)?' disabled-ability':'');
+    card.className = 'ability-card' + (isSelected||assignedToThis?' selected-ability':'') + (usedByOther||(!canAfford&&!assignedToThis)||overImposterLimit?' disabled-ability':'');
 
     card.innerHTML = `
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
         <span style="font-size:1.1rem;">${ab.icon}</span>
         <span style="font-size:0.8rem; font-weight:600; color:${CAT_COLORS[ab.cat]};">${ab.name}</span>
+        ${ab.isImposter?'<span style="font-size:0.5rem; background:rgba(255,40,85,0.2); color:var(--p2); padding:1px 4px; border-radius:2px; border:1px solid rgba(255,40,85,0.4); margin-left:4px;">IMPOSTER</span>':''}
         ${ab.once?'<span style="font-size:0.55rem; color:var(--muted); font-family:\'Share Tech Mono\',monospace; margin-left:auto;">1×</span>':''}
       </div>
       <div style="font-size:0.7rem; color:var(--muted); line-height:1.4;">${ab.desc}</div>
@@ -777,7 +786,7 @@ function renderArmory() {
     card.addEventListener('mouseenter', (e) => showTooltip(e, ab));
     card.addEventListener('mouseleave', hideTooltip);
 
-    if (!usedByOther && (canAfford || assignedToThis)) {
+    if (!usedByOther && (canAfford || assignedToThis) && !overImposterLimit) {
       card.onclick = () => assignAbility(ab);
     }
     ag.appendChild(card);
@@ -791,6 +800,17 @@ function assignAbility(ab) {
   if (!state.selectedDraftPiece) return;
 
   const currentAssigned = state.armoryDraft[p][state.selectedDraftPiece];
+  
+  // Imposter limit check
+  if (ab.isImposter && (!currentAssigned || !currentAssigned.isImposter)) {
+    const currentImposters = Object.values(state.armoryDraft[p]).filter(a => a.isImposter).length;
+    const imposterLimit = state.orbCount > 10 ? 2 : 1;
+    if (currentImposters >= imposterLimit) {
+      showMessage(`Max ${imposterLimit} Imposter roles allowed!`);
+      return;
+    }
+  }
+
   if (currentAssigned) {
     state.orbsUsed[p]--;
     delete state.armoryDraft[p][state.selectedDraftPiece];
@@ -1365,14 +1385,21 @@ function renderPlayerInfo(player, infoId, captId) {
   const el = document.getElementById(infoId);
   const capt = document.getElementById(captId);
 
+  // Viewer role for hiding imposters
+  const viewerRole = (isMultiplayer && myRole) ? (myRole === 'w' ? 1 : 2) : state.currentPlayer;
+  const isOwner = (player === viewerRole);
+
   // Pieces with abilities
   const pieces = getAllPieces(color);
   let html = '';
   pieces.filter(p=>p.ability).forEach(p=>{
     const ab = p.ability;
     const used = ab.once && isUsed(p, ab.id);
+    const showPiece = isOwner || !ab.isImposter;
+    const pieceSym = showPiece ? PIECE_SYMBOLS[p.color+p.type] : '?';
+    
     html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;opacity:${used?'0.35':'1'}">
-      <span style="font-size:1rem;">${PIECE_SYMBOLS[p.color+p.type]}</span>
+      <span style="font-size:1rem; width:1.2rem; text-align:center;">${pieceSym}</span>
       <span style="font-size:0.7rem;color:${CAT_COLORS[ab.cat]};">${ab.icon} ${ab.name}</span>
       ${used?'<span style="font-size:0.55rem;color:var(--muted);">used</span>':''}
     </div>`;
