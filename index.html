@@ -714,9 +714,13 @@ function getPieceList(player) {
 }
 
 function renderArmory() {
-  const p = state.currentArmoryPlayer;
-  const color = p === 1 ? 'neon-blue' : 'neon-red';
-  document.getElementById('armory-title').className = 'orb ' + color;
+  let p = state.currentArmoryPlayer;
+  if (isMultiplayer) {
+    p = (myRole === 'w' ? 1 : 2);
+  }
+  
+  const colorClass = p === 1 ? 'neon-blue' : 'neon-red';
+  document.getElementById('armory-title').className = 'orb ' + colorClass;
   document.getElementById('armory-title').textContent = `PLAYER ${p} — SETUP`;
 
   // Orb pips
@@ -760,7 +764,6 @@ function renderArmory() {
   ag.innerHTML = '';
   const orbsLeftNow = state.orbCount - state.orbsUsed[p];
   ABILITIES.forEach(ab => {
-    // Check if already used by another piece
     const usedByOther = Object.entries(state.armoryDraft[p]).some(([k,v]) => v && v.id === ab.id && k !== state.selectedDraftPiece);
     const assignedToThis = state.armoryDraft[p][state.selectedDraftPiece]?.id === ab.id;
     const canAfford = orbsLeftNow > 0 || assignedToThis;
@@ -784,18 +787,18 @@ function renderArmory() {
     if (!usedByOther && (canAfford || assignedToThis)) {
       card.onclick = () => assignAbility(ab);
     }
-
     ag.appendChild(card);
   });
 }
 
 function assignAbility(ab) {
-  const p = state.currentArmoryPlayer;
+  let p = state.currentArmoryPlayer;
+  if (isMultiplayer) p = (myRole === 'w' ? 1 : 2);
+  
   if (!state.selectedDraftPiece) return;
 
   const currentAssigned = state.armoryDraft[p][state.selectedDraftPiece];
   if (currentAssigned) {
-    // Refund orb
     state.orbsUsed[p]--;
     delete state.armoryDraft[p][state.selectedDraftPiece];
   }
@@ -810,7 +813,9 @@ function assignAbility(ab) {
 }
 
 function clearPieceAbility() {
-  const p = state.currentArmoryPlayer;
+  let p = state.currentArmoryPlayer;
+  if (isMultiplayer) p = (myRole === 'w' ? 1 : 2);
+  
   if (!state.selectedDraftPiece) return;
   const current = state.armoryDraft[p][state.selectedDraftPiece];
   if (current) {
