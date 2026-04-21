@@ -346,7 +346,7 @@
     </div>
 
     <button class="btn btn-blue" onclick="startArmory()" style="width:100%; font-size:0.85rem; padding:14px; margin-bottom:12px;">
-      ▶ ENTER THE ARMORY (LOCAL)
+      ▶ ENTER THE ARMORY
     </button>
     
     <div style="display:flex; gap:10px; margin-bottom:12px;">
@@ -581,7 +581,6 @@ const ABILITIES = [
   // COMBAT
   { id:'shield', name:'Shield', cat:'combat', icon:'🛡', desc:'Survives the first capture attempt. One use.', once:true },
   { id:'mirror', name:'Mirror', cat:'combat', icon:'🪞', desc:'When captured, the capturer is also removed.', once:false },
-  { id:'assassin', name:'Assassin', cat:'combat', icon:'🗡', desc:'Invisible in Fog of War to the enemy.', once:false },
   { id:'sniper', name:'Sniper', cat:'combat', icon:'🎯', desc:'Can capture a piece 2 squares away in a straight line. Once per game.', once:true },
   { id:'kamikaze', name:'Kamikaze', cat:'combat', icon:'💥', desc:'On death, explodes destroying all pieces in a 3×3 area.', once:false },
   // CONTROL
@@ -595,7 +594,6 @@ const ABILITIES = [
   { id:'commander', name:'Commander', cat:'support', icon:'⭐', desc:'All adjacent allied pieces get +1 range.', once:false },
   { id:'sacrifice', name:'Sacrifice', cat:'support', icon:'💀', desc:'Sacrifice this piece to block a check on your King. Activate when in check.', once:true },
   { id:'architect', name:'Architect', cat:'support', icon:'🧱', desc:'Turn an adjacent empty square into a Wall for 2 turns. Activate as action.', once:true },
-  { id:'vision', name:'Vision', cat:'support', icon:'🔭', desc:'Removes Fog of War in a 3×3 area around this piece permanently.', once:false },
   // CHAOS
   { id:'timewarp', name:'Time Warp', cat:'chaos', icon:'⏪', desc:'Undo the last move. Once per game.', once:true },
   { id:'imposter', name:'Imposter', cat:'chaos', icon:'🎭', desc:'Appears as an enemy piece type to the opponent.', once:false },
@@ -629,7 +627,7 @@ const PIECE_NAMES = { K:'King', Q:'Queen', R:'Rook', B:'Bishop', N:'Knight', P:'
 // =====================================================
 let state = {
   orbCount: 5,
-  fogEnabled: true,
+  fogEnabled: false,
   currentArmoryPlayer: 1,
   armoryDraft: { 1: {}, 2: {} },
   selectedDraftPiece: null,
@@ -675,16 +673,9 @@ document.getElementById('orb-slider').addEventListener('input', function() {
   state.orbCount = parseInt(this.value);
 });
 
-let fogChoice = true;
-function setFog(val) {
-  fogChoice = val;
-  document.getElementById('fog-on').className = 'btn ' + (val ? 'btn-blue' : 'btn-ghost');
-  document.getElementById('fog-off').className = 'btn ' + (!val ? 'btn-red' : 'btn-ghost');
-}
-
 function startArmory() {
   state.orbCount = parseInt(document.getElementById('orb-slider').value);
-  state.fogEnabled = fogChoice;
+  state.fogEnabled = false;
   state.currentArmoryPlayer = 1;
   state.armoryDraft = { 1: {}, 2: {} };
   state.orbsUsed = { 1: 0, 2: 0 };
@@ -1215,96 +1206,101 @@ function renderBoard() {
   boardEl.innerHTML = '';
 
   const currentColor = state.currentPlayer === 1 ? 'w' : 'b';
-  const visibleCells = state.fogEnabled ? getFogVisibility(currentColor) : null;
 
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
-    const cell = document.createElement('div');
-    const isLight = (r+c)%2===0;
-    cell.className = 'cell ' + (isLight?'light':'dark');
-    cell.dataset.row = r;
-    cell.dataset.col = c;
+  // Perspectives: iterate rows/cols differently if I'm Black
+  const isBlackPerspective = (myRole === 'b');
+  
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const r = isBlackPerspective ? i : i; // Row logic needs to be careful
+      const c = isBlackPerspective ? 7 - j : j;
+      const actualRow = isBlackPerspective ? 7 - i : i;
+      const actualCol = c;
 
-    const isWall = state.walls.some(w=>w.row===r&&w.col===c);
-    if (isWall) cell.classList.add('wall-cell');
+      const cell = document.createElement('div');
+      const isLight = (actualRow + actualCol) % 2 === 0;
+      cell.className = 'cell ' + (isLight ? 'light' : 'dark');
+      cell.dataset.row = actualRow;
+      cell.dataset.col = actualCol;
 
-    // Fog
-    const inFog = state.fogEnabled && visibleCells && !visibleCells.has(`${r},${c}`);
-    if (inFog) cell.classList.add('fog');
+      const isWall = state.walls.some(w => w.row === actualRow && w.col === actualCol);
+      if (isWall) cell.classList.add('wall-cell');
 
-    // Last move highlight
-    if (state.lastMove) {
-      const lm = state.lastMove;
-      if ((lm.fromRow===r&&lm.fromCol===c)||(lm.toRow===r&&lm.toCol===c))
-        cell.classList.add('highlight-last');
-    }
-
-    // Portal gate
-    if (state.portalGate && state.portalGate.row===r && state.portalGate.col===c) {
-      cell.style.background = 'rgba(168,85,247,0.3)';
-      cell.style.boxShadow = 'inset 0 0 0 2px #a855f7';
-    }
-
-    // Selected cell
-    if (state.selectedCell && state.selectedCell.row===r && state.selectedCell.col===c)
-      cell.classList.add('selected');
-
-    // Valid moves
-    const vm = state.validMoves.find(m=>m.row===r&&m.col===c);
-    if (vm) {
-      if (vm.capture) cell.classList.add('valid-capture');
-      else cell.classList.add('valid-move');
-    }
-
-    // Piece
-    const piece = state.board[r][c];
-    if (piece) {
-      const inner = document.createElement('div');
-      inner.className = 'piece-inner';
-      inner.dataset.pieceId = piece.id;
-
-      let symbol = PIECE_SYMBOLS[piece.color+piece.type];
-      // Imposter: show wrong type to enemy
-      if (piece.ability?.id==='imposter' && piece.color!==currentColor && piece.imposterType) {
-        const enemyColor = piece.color==='w'?'b':'w';
-        symbol = PIECE_SYMBOLS[enemyColor+piece.imposterType] || symbol;
+      // Last move highlight
+      if (state.lastMove) {
+        const lm = state.lastMove;
+        if ((lm.fromRow === actualRow && lm.fromCol === actualCol) || (lm.toRow === actualRow && lm.toCol === actualCol))
+          cell.classList.add('highlight-last');
       }
 
-      const span = document.createElement('span');
-      span.textContent = symbol;
-      span.style.fontSize = '2rem';
-      span.style.textShadow = piece.color==='w'
-        ? '0 0 8px rgba(0,212,255,0.6)'
-        : '0 0 8px rgba(255,40,85,0.6)';
-      span.style.filter = piece.stunTurns>0 ? 'brightness(0.4)' : '';
-
-      inner.appendChild(span);
-
-      // Ability badge
-      if (piece.ability && !inFog) {
-        const badge = document.createElement('div');
-        badge.className = 'piece-badge ' + (piece.color==='w'?'badge-p1':'badge-p2');
-        badge.textContent = piece.ability.icon;
-        badge.style.fontSize = '0.6rem';
-        inner.appendChild(badge);
+      // Portal gate
+      if (state.portalGate && state.portalGate.row === actualRow && state.portalGate.col === actualCol) {
+        cell.style.background = 'rgba(168,85,247,0.3)';
+        cell.style.boxShadow = 'inset 0 0 0 2px #a855f7';
       }
 
-      // Shield ring
-      if (piece.ability?.id==='shield' && !piece.shieldUsed) {
-        const ring = document.createElement('div');
-        ring.className = 'shield-ring';
-        inner.appendChild(ring);
+      // Selected cell
+      if (state.selectedCell && state.selectedCell.row === actualRow && state.selectedCell.col === actualCol)
+        cell.classList.add('selected');
+
+      // Valid moves
+      const vm = state.validMoves.find(m => m.row === actualRow && m.col === actualCol);
+      if (vm) {
+        if (vm.capture) cell.classList.add('valid-capture');
+        else cell.classList.add('valid-move');
       }
 
-      cell.appendChild(inner);
+      // Piece
+      const piece = state.board[actualRow][actualCol];
+      if (piece) {
+        const inner = document.createElement('div');
+        inner.className = 'piece-inner';
+        inner.dataset.pieceId = piece.id;
+
+        let symbol = PIECE_SYMBOLS[piece.color + piece.type];
+        // Imposter: show wrong type to enemy
+        if (piece.ability?.id === 'imposter' && piece.color !== currentColor && piece.imposterType) {
+          const enemyColor = piece.color === 'w' ? 'b' : 'w';
+          symbol = PIECE_SYMBOLS[enemyColor + piece.imposterType] || symbol;
+        }
+
+        const span = document.createElement('span');
+        span.textContent = symbol;
+        span.style.fontSize = '2rem';
+        span.style.textShadow = piece.color === 'w'
+          ? '0 0 8px rgba(0,212,255,0.6)'
+          : '0 0 8px rgba(255,40,85,0.6)';
+        span.style.filter = piece.stunTurns > 0 ? 'brightness(0.4)' : '';
+
+        inner.appendChild(span);
+
+        // Ability badge
+        if (piece.ability) {
+          const badge = document.createElement('div');
+          badge.className = 'piece-badge ' + (piece.color === 'w' ? 'badge-p1' : 'badge-p2');
+          badge.textContent = piece.ability.icon;
+          badge.style.fontSize = '0.6rem';
+          inner.appendChild(badge);
+        }
+
+        // Shield ring
+        if (piece.ability?.id === 'shield' && !piece.shieldUsed) {
+          const ring = document.createElement('div');
+          ring.className = 'shield-ring';
+          inner.appendChild(ring);
+        }
+
+        cell.appendChild(inner);
+      }
+
+      cell.addEventListener('click', () => onCellClick(actualRow, actualCol));
+      cell.addEventListener('mouseenter', (e) => {
+        if (piece && piece.ability) showTooltip(e, piece.ability);
+      });
+      cell.addEventListener('mouseleave', hideTooltip);
+
+      boardEl.appendChild(cell);
     }
-
-    cell.addEventListener('click', () => onCellClick(r, c));
-    cell.addEventListener('mouseenter', (e) => {
-      if (piece && piece.ability) showTooltip(e, piece.ability);
-    });
-    cell.addEventListener('mouseleave', hideTooltip);
-
-    boardEl.appendChild(cell);
   }
 
   // Coordinates
@@ -1316,25 +1312,30 @@ function renderCoords() {
   const top = document.getElementById('top-coords');
   const left = document.getElementById('left-coords');
   const right = document.getElementById('right-coords');
-  if (!top||!left||!right) return;
+  if (!top || !left || !right) return;
   top.innerHTML = '';
   left.innerHTML = '';
   right.innerHTML = '';
-  for (let c=0;c<8;c++) {
+
+  const isBlackPerspective = (myRole === 'b');
+
+  for (let j = 0; j < 8; j++) {
+    const c = isBlackPerspective ? 7 - j : j;
     const d = document.createElement('div');
-    d.style.cssText='width:72px;text-align:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
-    d.textContent=files[c];
+    d.style.cssText = 'width:72px;text-align:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
+    d.textContent = files[c];
     top.appendChild(d);
   }
-  for (let r=0;r<8;r++) {
-    const rank = 8-r;
+  for (let i = 0; i < 8; i++) {
+    const r = isBlackPerspective ? 7 - i : i;
+    const rank = 8 - r;
     const dl = document.createElement('div');
-    dl.style.cssText='width:20px;height:72px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
-    dl.textContent=rank;
+    dl.style.cssText = 'width:20px;height:72px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
+    dl.textContent = rank;
     left.appendChild(dl);
     const dr = document.createElement('div');
-    dr.style.cssText='width:20px;height:72px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
-    dr.textContent=rank;
+    dr.style.cssText = 'width:20px;height:72px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
+    dr.textContent = rank;
     right.appendChild(dr);
   }
 }
