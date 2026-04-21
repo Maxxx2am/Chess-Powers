@@ -551,16 +551,17 @@ socket.on('syncSetup', (data) => {
   console.log('Received setup sync:', data);
   state.armoryDraft[data.player] = data.draft;
   state.orbsUsed[data.player] = data.orbs;
-  if (data.player === 1 && myRole === 'b') {
-    // If I'm Black and White finished setup, I can start mine or wait
-  }
-  if (state.orbsUsed[1] > 0 && state.orbsUsed[2] > 0) {
+  state.setupReady[data.player] = data.ready;
+
+  if (state.setupReady[1] && state.setupReady[2]) {
     // Both done? 
-    // In multiplayer, finishSetup will handle this
+    // If I'm the one who just received the final sync, I can also trigger game start
+    // but typically the sender of 'gameStateUpdate' handles it for everyone.
   }
 });
 
-socket.on('startPlay', (data) => {
+socket.on('gameStateUpdate', (data) => {
+    console.log('Received game state update:', data);
     state.armoryDraft = data.armoryDraft;
     state.orbCount = data.orbCount;
     state.fogEnabled = data.fogEnabled;
@@ -634,6 +635,7 @@ let state = {
   selectedDraftPiece: null,
   selectedAbility: null,
   orbsUsed: { 1: 0, 2: 0 },
+  setupReady: { 1: false, 2: false },
 
   // Game
   board: [], // 8x8 array of piece objects or null
@@ -829,9 +831,10 @@ function clearPieceAbility() {
 function finishSetup() {
   if (isMultiplayer) {
     const p = myRole === 'w' ? 1 : 2;
-    socket.emit('syncSetup', { room: gameRoom, player: p, draft: state.armoryDraft[p], orbs: state.orbsUsed[p] });
+    state.setupReady[p] = true;
+    socket.emit('syncSetup', { room: gameRoom, player: p, draft: state.armoryDraft[p], orbs: state.orbsUsed[p], ready: true });
     
-    if (state.orbsUsed[1] > 0 && state.orbsUsed[2] > 0) {
+    if (state.setupReady[1] && state.setupReady[2]) {
        // Start game for everyone if I'm the one who finished last
        socket.emit('gameStateUpdate', { room: gameRoom, armoryDraft: state.armoryDraft, orbCount: state.orbCount, fogEnabled: state.fogEnabled });
        initGame();
@@ -883,7 +886,7 @@ function confirmReady() {
 // GAME INITIALIZATION
 // =====================================================
 function initGame() {
-  if (isMultiplayer && state.orbsUsed[1] > 0 && state.orbsUsed[2] > 0) {
+  if (isMultiplayer && state.setupReady[1] && state.setupReady[2]) {
     socket.emit('gameStateUpdate', { room: gameRoom, armoryDraft: state.armoryDraft, orbCount: state.orbCount, fogEnabled: state.fogEnabled, start: true });
   }
   initGameLocal();
