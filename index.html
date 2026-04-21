@@ -430,6 +430,9 @@
       <div class="orb neon-blue" style="font-size:0.6rem; letter-spacing:0.15em; margin-bottom:12px;">PLAYER 1</div>
       <div id="p1-info"></div>
       <div class="divider"></div>
+      <div class="orb" style="font-size:0.5rem; color:var(--muted); margin-bottom:8px;">POWERS READY</div>
+      <div id="p1-powers" style="margin-bottom:12px;"></div>
+      <div class="divider"></div>
       <div style="font-size:0.7rem; color:var(--muted); font-family:'Share Tech Mono',monospace; margin-bottom:8px;">CAPTURED</div>
       <div id="p1-captured" style="font-size:1.1rem; line-height:1.8; word-break:break-all;"></div>
     </div>
@@ -448,12 +451,20 @@
         <div id="right-coords" style="display:flex; flex-direction:column;"></div>
       </div>
       <div id="game-message" style="font-family:'Share Tech Mono',monospace; font-size:0.8rem; color:var(--p1); min-height:20px; text-align:center;"></div>
+      
+      <!-- ACTION BUTTONS AREA -->
+      <div id="action-bar" style="display:flex; gap:12px; margin-top:8px; min-height:45px;">
+        <button class="btn btn-blue" id="big-ability-btn" onclick="activateAbilityMode()" style="display:none; font-size:0.8rem; padding:10px 24px; border-width:2px;"></button>
+      </div>
     </div>
 
     <!-- RIGHT SIDEBAR -->
     <div id="sidebar-right" style="width:200px; flex-shrink:0; padding:12px; border-left:1px solid var(--border); overflow-y:auto;">
       <div class="orb neon-red" style="font-size:0.6rem; letter-spacing:0.15em; margin-bottom:12px;">PLAYER 2</div>
       <div id="p2-info"></div>
+      <div class="divider"></div>
+      <div class="orb" style="font-size:0.5rem; color:var(--muted); margin-bottom:8px;">POWERS READY</div>
+      <div id="p2-powers" style="margin-bottom:12px;"></div>
       <div class="divider"></div>
       <div style="font-size:0.7rem; color:var(--muted); font-family:'Share Tech Mono',monospace; margin-bottom:8px;">CAPTURED</div>
       <div id="p2-captured" style="font-size:1.1rem; line-height:1.8; word-break:break-all;"></div>
@@ -1197,30 +1208,88 @@ function renderGame() {
   renderBoard();
   renderSidebars();
   renderTurnIndicator();
+  renderPowersReady();
 
-  // Toggle use-ability-btn
-  const abilityBtn = document.getElementById('use-ability-btn');
+  // Toggle dynamic ability button
+  const bigBtn = document.getElementById('big-ability-btn');
   if (state.selectedCell) {
     const piece = state.board[state.selectedCell.row][state.selectedCell.col];
     const activeAbilities = ['stun','push','wind','architect','magnet','portal','teleport','timewarp','blink'];
     
-    // Multiplayer visibility check for the button
     const isMyTurn = isMultiplayer ? ((state.currentPlayer===1 && myRole==='w') || (state.currentPlayer===2 && myRole==='b')) : true;
     const isMyPiece = isMultiplayer ? (piece && piece.color === myRole) : (piece && piece.color === (state.currentPlayer===1?'w':'b'));
 
     if (piece && piece.ability && activeAbilities.includes(piece.ability.id) && isMyTurn && isMyPiece) {
-      abilityBtn.style.display = 'block';
-      if (piece.ability.once && isUsed(piece, piece.ability.id)) {
-        abilityBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      bigBtn.style.display = 'block';
+      const used = piece.ability.once && isUsed(piece, piece.ability.id);
+      
+      bigBtn.innerHTML = `<span>${piece.ability.icon}</span> USE ${piece.ability.name.toUpperCase()}`;
+      bigBtn.className = 'btn ' + (state.currentPlayer===1?'btn-blue':'btn-red');
+      
+      if (used) {
+        bigBtn.classList.add('opacity-30', 'cursor-not-allowed');
+        bigBtn.onclick = null;
       } else {
-        abilityBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        bigBtn.classList.remove('opacity-30', 'cursor-not-allowed');
+        bigBtn.onclick = activateAbilityMode;
       }
     } else {
-      abilityBtn.style.display = 'none';
+      bigBtn.style.display = 'none';
     }
   } else {
-    abilityBtn.style.display = 'none';
+    bigBtn.style.display = 'none';
   }
+}
+
+function renderPowersReady() {
+  const p1Cont = document.getElementById('p1-info'); // Re-using but I'll add a specific one
+  // Actually, I added p1-powers and p2-powers in the previous turn
+  [1,2].forEach(p => {
+    const color = p===1?'w':'b';
+    const cont = document.getElementById(`p${p}-powers`);
+    if (!cont) return;
+    
+    const viewerRole = (isMultiplayer && myRole) ? (myRole === 'w' ? 1 : 2) : state.currentPlayer;
+    const isOwner = (p === viewerRole);
+    
+    const activeAbilities = ['stun','push','wind','architect','magnet','portal','teleport','timewarp','blink'];
+    const usablePieces = getAllPieces(color).filter(pc => 
+      pc.ability && activeAbilities.includes(pc.ability.id) && !(pc.ability.once && isUsed(pc, pc.ability.id))
+    );
+
+    let html = '';
+    usablePieces.forEach(pc => {
+      const ab = pc.ability;
+      // If it's an imposter piece and I'm not the owner, hide it from this list too
+      if (!isOwner && ab.isImposter) return;
+
+      const pieceSym = PIECE_SYMBOLS[pc.color+pc.type];
+      const colorHex = pc.color === 'w' ? 'var(--p1)' : 'var(--p2)';
+      
+      html += `<div class="ability-card" style="padding:6px; margin-bottom:6px; border-color:${colorHex}44; display:flex; align-items:center; gap:8px;" onclick="selectAndFocusPiece(${pc.row}, ${pc.col})">
+        <span style="color:${colorHex}; font-size:1.1rem;">${pieceSym}</span>
+        <div style="flex:1;">
+          <div style="font-size:0.6rem; color:var(--muted); line-height:1;">${PIECE_NAMES[pc.type]}</div>
+          <div style="font-size:0.7rem; color:${CAT_COLORS[ab.cat]}; font-weight:600;">${ab.icon} ${ab.name}</div>
+        </div>
+      </div>`;
+    });
+    cont.innerHTML = html || '<div style="font-size:0.6rem; color:var(--muted); font-style:italic;">No active powers</div>';
+  });
+}
+
+function selectAndFocusPiece(r, c) {
+  if (state.gamePhase !== 'game') return;
+  // Multiplayer turn check
+  if (isMultiplayer) {
+    if (state.currentPlayer === 1 && myRole !== 'w') return;
+    if (state.currentPlayer === 2 && myRole !== 'b') return;
+  }
+  const piece = state.board[r][c];
+  state.selectedCell = {row:r, col:c};
+  state.validMoves = getValidMoves(piece);
+  renderGame();
+  showPieceInfo(piece);
 }
 
 function renderBoard() {
