@@ -119,8 +119,6 @@
     border-radius: 50%;
   }
   .cell.valid-capture { box-shadow: inset 0 0 0 3px var(--p2); background: rgba(255,40,85,0.15) !important; }
-  .cell.fog { background: #020508 !important; }
-  .cell.fog .piece-inner { display: none; }
   .cell.wall-cell::before {
     content: '▪';
     position: absolute;
@@ -564,7 +562,6 @@ socket.on('gameStateUpdate', (data) => {
     console.log('Received game state update:', data);
     state.armoryDraft = data.armoryDraft;
     state.orbCount = data.orbCount;
-    state.fogEnabled = data.fogEnabled;
     initGameLocal();
 });
 
@@ -1358,21 +1355,6 @@ function renderCoords() {
     dr.textContent = rank;
     right.appendChild(dr);
   }
-}
-
-function getFogVisibility(color) {
-  const visible = new Set();
-  const range = 2;
-  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
-    const p = state.board[r][c];
-    if (!p || p.color!==color) continue;
-    const vRange = p.ability?.id==='vision' ? 3 : range;
-    for (let dr=-vRange;dr<=vRange;dr++) for (let dc=-vRange;dc<=vRange;dc++) {
-      const nr=r+dr, nc=c+dc;
-      if (nr>=0&&nr<8&&nc>=0&&nc<8) visible.add(`${nr},${nc}`);
-    }
-  }
-  return visible;
 }
 
 function renderSidebars() {
