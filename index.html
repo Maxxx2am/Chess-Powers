@@ -1203,7 +1203,12 @@ function renderGame() {
   if (state.selectedCell) {
     const piece = state.board[state.selectedCell.row][state.selectedCell.col];
     const activeAbilities = ['stun','push','wind','architect','magnet','portal','teleport','timewarp','blink'];
-    if (piece && piece.ability && activeAbilities.includes(piece.ability.id)) {
+    
+    // Multiplayer visibility check for the button
+    const isMyTurn = isMultiplayer ? ((state.currentPlayer===1 && myRole==='w') || (state.currentPlayer===2 && myRole==='b')) : true;
+    const isMyPiece = isMultiplayer ? (piece && piece.color === myRole) : (piece && piece.color === (state.currentPlayer===1?'w':'b'));
+
+    if (piece && piece.ability && activeAbilities.includes(piece.ability.id) && isMyTurn && isMyPiece) {
       abilityBtn.style.display = 'block';
       if (piece.ability.once && isUsed(piece, piece.ability.id)) {
         abilityBtn.classList.add('opacity-50', 'cursor-not-allowed');
@@ -1274,9 +1279,12 @@ function renderBoard() {
         inner.className = 'piece-inner';
         inner.dataset.pieceId = piece.id;
 
+        const viewerColor = (isMultiplayer && myRole) ? myRole : (state.currentPlayer === 1 ? 'w' : 'b');
+        const isEnemy = piece.color !== viewerColor;
+
         let symbol = PIECE_SYMBOLS[piece.color + piece.type];
         // Imposter: show wrong type to enemy
-        if (piece.ability?.id === 'imposter' && piece.color !== currentColor && piece.imposterType) {
+        if (piece.ability?.id === 'imposter' && isEnemy && piece.imposterType) {
           const enemyColor = piece.color === 'w' ? 'b' : 'w';
           symbol = PIECE_SYMBOLS[enemyColor + piece.imposterType] || symbol;
         }
@@ -1284,15 +1292,23 @@ function renderBoard() {
         const span = document.createElement('span');
         span.textContent = symbol;
         span.style.fontSize = '2rem';
-        span.style.textShadow = piece.color === 'w'
-          ? '0 0 8px rgba(0,212,255,0.6)'
-          : '0 0 8px rgba(255,40,85,0.6)';
+
+        // Visual Identity (handle Imposter mimicry)
+        let visualColor = piece.color;
+        if (piece.ability?.id === 'imposter' && isEnemy && piece.imposterType) {
+          visualColor = piece.color === 'w' ? 'b' : 'w';
+        }
+
+        span.style.color = visualColor === 'w' ? 'var(--p1)' : 'var(--p2)';
+        span.style.textShadow = visualColor === 'w'
+          ? '0 0 10px rgba(0,212,255,0.5)'
+          : '0 0 10px rgba(255,40,85,0.5)';
         span.style.filter = piece.stunTurns > 0 ? 'brightness(0.4)' : '';
 
         inner.appendChild(span);
 
-        // Ability badge
-        if (piece.ability) {
+        // Ability badge - Hide if it's an enemy imposter
+        if (piece.ability && (!isEnemy || !piece.ability.isImposter)) {
           const badge = document.createElement('div');
           badge.className = 'piece-badge ' + (piece.color === 'w' ? 'badge-p1' : 'badge-p2');
           badge.textContent = piece.ability.icon;
@@ -1312,7 +1328,10 @@ function renderBoard() {
 
       cell.addEventListener('click', () => onCellClick(actualRow, actualCol));
       cell.addEventListener('mouseenter', (e) => {
-        if (piece && piece.ability) showTooltip(e, piece.ability);
+        const viewerColor = (isMultiplayer && myRole) ? myRole : (state.currentPlayer === 1 ? 'w' : 'b');
+        if (piece && piece.ability && (piece.color === viewerColor || !piece.ability.isImposter)) {
+          showTooltip(e, piece.ability);
+        }
       });
       cell.addEventListener('mouseleave', hideTooltip);
 
@@ -1379,9 +1398,11 @@ function renderPlayerInfo(player, infoId, captId) {
     const used = ab.once && isUsed(p, ab.id);
     const showPiece = isOwner || !ab.isImposter;
     const pieceSym = showPiece ? PIECE_SYMBOLS[p.color+p.type] : '?';
+    const visualColor = showPiece ? p.color : (player===1?'w':'b'); // Color of the '?' or real piece
+    const colorHex = visualColor === 'w' ? 'var(--p1)' : 'var(--p2)';
     
     html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;opacity:${used?'0.35':'1'}">
-      <span style="font-size:1rem; width:1.2rem; text-align:center;">${pieceSym}</span>
+      <span style="font-size:1.1rem; width:1.2rem; text-align:center; color:${colorHex}; text-shadow: 0 0 5px ${colorHex}88;">${pieceSym}</span>
       <span style="font-size:0.7rem;color:${CAT_COLORS[ab.cat]};">${ab.icon} ${ab.name}</span>
       ${used?'<span style="font-size:0.55rem;color:var(--muted);">used</span>':''}
     </div>`;
@@ -1458,10 +1479,23 @@ function onCellClick(row, col) {
 
 function showPieceInfo(piece) {
   const msg = document.getElementById('game-message');
+  const viewerColor = (isMultiplayer && myRole) ? myRole : (state.currentPlayer === 1 ? 'w' : 'b');
+  const isOwner = piece.color === viewerColor;
+
   if (piece.ability) {
-    msg.textContent = `${PIECE_SYMBOLS[piece.color+piece.type]} ${PIECE_NAMES[piece.type]} — ${piece.ability.icon} ${piece.ability.name}: ${piece.ability.desc}`;
+    if (isOwner || !piece.ability.isImposter) {
+      msg.textContent = `${PIECE_SYMBOLS[piece.color+piece.type]} ${PIECE_NAMES[piece.type]} — ${piece.ability.icon} ${piece.ability.name}: ${piece.ability.desc}`;
+    } else {
+      // Imposter/Phantom hiding
+      if (piece.ability.id === 'imposter' && piece.imposterType) {
+        const enemyColor = piece.color === 'w' ? 'b' : 'w';
+        msg.textContent = `${PIECE_SYMBOLS[enemyColor+piece.imposterType]} ${PIECE_NAMES[piece.imposterType]}`;
+      } else {
+        msg.textContent = `${PIECE_SYMBOLS[piece.color+piece.type]} ${PIECE_NAMES[piece.type]}`;
+      }
+    }
   } else {
-    msg.textContent = '';
+    msg.textContent = `${PIECE_SYMBOLS[piece.color+piece.type]} ${PIECE_NAMES[piece.type]}`;
   }
 }
 
