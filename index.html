@@ -1,0 +1,1846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CHESS: DECEPTION & AUGMENTATION</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --p1: #00d4ff;
+    --p2: #ff2855;
+    --bg: #050a0f;
+    --surface: #0d1520;
+    --surface2: #111d2e;
+    --border: #1a2d45;
+    --glow1: 0 0 20px rgba(0,212,255,0.4);
+    --glow2: 0 0 20px rgba(255,40,85,0.4);
+    --text: #c8d8e8;
+    --muted: #4a6070;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(ellipse at 20% 50%, rgba(0,212,255,0.03) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 50%, rgba(255,40,85,0.03) 0%, transparent 60%);
+  }
+  .mono { font-family: 'Share Tech Mono', monospace; }
+  .orb { font-family: 'Orbitron', sans-serif; }
+
+  /* SCANLINE OVERLAY */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none; z-index: 9999;
+  }
+
+  /* SCREENS */
+  .screen { display: none; width: 100%; min-height: 100vh; }
+  .screen.active { display: flex; flex-direction: column; }
+
+  /* NEON TEXT */
+  .neon-blue { color: var(--p1); text-shadow: 0 0 10px rgba(0,212,255,0.8), 0 0 30px rgba(0,212,255,0.4); }
+  .neon-red { color: var(--p2); text-shadow: 0 0 10px rgba(255,40,85,0.8), 0 0 30px rgba(255,40,85,0.4); }
+
+  /* BUTTONS */
+  .btn {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    padding: 12px 28px;
+    border: 1px solid;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+    text-transform: uppercase;
+  }
+  .btn-blue { border-color: var(--p1); color: var(--p1); }
+  .btn-blue:hover { background: rgba(0,212,255,0.1); box-shadow: var(--glow1); }
+  .btn-red { border-color: var(--p2); color: var(--p2); }
+  .btn-red:hover { background: rgba(255,40,85,0.1); box-shadow: var(--glow2); }
+  .btn-ghost { border-color: var(--border); color: var(--muted); }
+  .btn-ghost:hover { border-color: var(--text); color: var(--text); }
+
+  /* PANEL */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+
+  /* SLIDER */
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%; height: 4px;
+    background: var(--border);
+    border-radius: 2px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    background: var(--p1);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(0,212,255,0.6);
+  }
+
+  /* CHESS BOARD */
+  #board-container {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    border: 1px solid var(--border);
+    box-shadow: 0 0 40px rgba(0,0,0,0.8);
+  }
+  .cell {
+    width: 72px; height: 72px;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; cursor: pointer;
+    transition: background 0.1s;
+    font-size: 2.2rem;
+    user-select: none;
+  }
+  .cell.light { background: #0d1e30; }
+  .cell.dark { background: #071018; }
+  .cell.selected { background: rgba(0,212,255,0.25) !important; box-shadow: inset 0 0 0 2px var(--p1); }
+  .cell.valid-move::after {
+    content: '';
+    position: absolute;
+    width: 22px; height: 22px;
+    background: rgba(0,212,255,0.5);
+    border-radius: 50%;
+  }
+  .cell.valid-capture { box-shadow: inset 0 0 0 3px var(--p2); background: rgba(255,40,85,0.15) !important; }
+  .cell.fog { background: #020508 !important; }
+  .cell.fog .piece-inner { display: none; }
+  .cell.wall-cell::before {
+    content: '▪';
+    position: absolute;
+    font-size: 3rem;
+    color: #445566;
+    opacity: 0.7;
+    z-index: 1;
+  }
+  .cell.highlight-last { box-shadow: inset 0 0 0 2px rgba(255,200,0,0.4); }
+
+  .piece-inner {
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%;
+    z-index: 2;
+  }
+  .piece-badge {
+    position: absolute;
+    bottom: 4px; right: 4px;
+    font-size: 0.45rem;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Share Tech Mono', monospace;
+    font-weight: bold;
+    z-index: 3;
+  }
+  .badge-p1 { background: var(--p1); color: #000; }
+  .badge-p2 { background: var(--p2); color: #fff; }
+
+  .shield-ring {
+    position: absolute;
+    inset: 2px;
+    border-radius: 50%;
+    border: 2px solid #ffd700;
+    pointer-events: none;
+    animation: pulse-ring 2s infinite;
+  }
+  @keyframes pulse-ring { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ABILITY CARD */
+  .ability-card {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--surface);
+  }
+  .ability-card:hover { border-color: var(--p1); background: rgba(0,212,255,0.05); }
+  .ability-card.selected-ability { border-color: var(--p1); background: rgba(0,212,255,0.1); box-shadow: 0 0 12px rgba(0,212,255,0.2); }
+  .ability-card.disabled-ability { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+
+  /* CATEGORY PILLS */
+  .cat-movement { color: #00ffaa; }
+  .cat-combat { color: #ff6b35; }
+  .cat-control { color: #a855f7; }
+  .cat-support { color: #fbbf24; }
+  .cat-chaos { color: #ec4899; }
+
+  /* PIECE SELECTOR */
+  .piece-btn {
+    padding: 6px 10px;
+    font-size: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    background: var(--surface);
+    transition: all 0.15s;
+    position: relative;
+    min-width: 50px;
+    text-align: center;
+  }
+  .piece-btn:hover { border-color: var(--p1); }
+  .piece-btn.piece-selected { border-color: var(--p1); background: rgba(0,212,255,0.1); }
+  .piece-btn .piece-count {
+    position: absolute; top: 2px; right: 4px;
+    font-size: 0.55rem; font-family: 'Share Tech Mono', monospace;
+    color: var(--muted);
+  }
+
+  /* ORBS DISPLAY */
+  .orb-pip {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    transition: all 0.3s;
+  }
+  .orb-active { background: var(--p1); box-shadow: 0 0 8px rgba(0,212,255,0.6); }
+  .orb-active-p2 { background: var(--p2); box-shadow: 0 0 8px rgba(255,40,85,0.6); }
+  .orb-spent { background: var(--border); }
+
+  /* TOOLTIP */
+  #ability-tooltip {
+    position: fixed;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 12px 16px;
+    max-width: 240px;
+    font-size: 0.8rem;
+    border-radius: 4px;
+    z-index: 1000;
+    pointer-events: none;
+    display: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+  }
+
+  /* ROTATE TRANSITION */
+  #rotate-screen {
+    background: var(--bg);
+    align-items: center; justify-content: center;
+    flex-direction: column;
+    gap: 24px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+
+  /* STATUS BAR */
+  #status-bar {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+  }
+
+  /* GAME LAYOUT */
+  #game-screen { flex-direction: row; align-items: flex-start; }
+  #sidebar-left, #sidebar-right { width: 220px; flex-shrink: 0; padding: 16px; }
+  #board-area { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 16px 0; }
+
+  /* ANIMATIONS */
+  @keyframes capture-flash { 0%{opacity:1} 50%{opacity:0} 100%{opacity:0} }
+  .capture-anim { animation: capture-flash 0.4s forwards; }
+
+  @keyframes glow-pulse { 0%,100%{opacity:0.5} 50%{opacity:1} }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+
+  /* START SCREEN GRID BG */
+  #start-screen::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .divider { height: 1px; background: var(--border); margin: 12px 0; }
+
+  /* DRAFT PIECES TABLE */
+  .draft-piece-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .draft-piece-row:hover { background: rgba(255,255,255,0.03); border-color: var(--border); }
+  .draft-piece-row.active-piece { background: rgba(0,212,255,0.07); border-color: rgba(0,212,255,0.3); }
+  .draft-piece-row.has-ability { }
+
+  .assigned-tag {
+    font-size: 0.6rem;
+    font-family: 'Share Tech Mono', monospace;
+    padding: 2px 6px;
+    border-radius: 2px;
+    background: rgba(0,212,255,0.15);
+    color: var(--p1);
+    border: 1px solid rgba(0,212,255,0.3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100px;
+  }
+
+  /* INFO PANEL during game */
+  .info-piece-display {
+    font-size: 3rem;
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .ability-active-badge {
+    padding: 3px 8px;
+    border: 1px solid;
+    font-size: 0.65rem;
+    font-family: 'Share Tech Mono', monospace;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .ability-usable { border-color: var(--p1); color: var(--p1); }
+  .ability-usable:hover { background: rgba(0,212,255,0.1); }
+  .ability-used { border-color: var(--muted); color: var(--muted); text-decoration: line-through; }
+</style>
+</head>
+<body>
+
+<!-- ==================== START SCREEN ==================== -->
+<div id="start-screen" class="screen active" style="align-items:center; justify-content:center; flex-direction:column; gap:32px; padding:40px 20px;">
+  <div style="text-align:center">
+    <div style="font-size:0.7rem; letter-spacing:0.3em; color:var(--muted); font-family:'Orbitron',sans-serif; margin-bottom:8px;">TACTICAL BOARD GAME</div>
+    <h1 class="orb neon-blue" style="font-size:clamp(1.8rem,4vw,3rem); font-weight:900; line-height:1.1; letter-spacing:0.05em;">CHESS</h1>
+    <h2 class="orb" style="font-size:clamp(0.9rem,2vw,1.3rem); color:var(--text); letter-spacing:0.2em; font-weight:400; margin-top:4px;">DECEPTION &amp; AUGMENTATION</h2>
+    <div style="height:2px; background:linear-gradient(90deg,transparent,var(--p1),transparent); margin-top:16px; opacity:0.6;"></div>
+  </div>
+
+  <div class="panel" style="max-width:480px; width:100%; padding:28px 32px;">
+    <div class="orb" style="font-size:0.65rem; letter-spacing:0.15em; color:var(--muted); margin-bottom:20px;">GAME CONFIGURATION</div>
+
+    <div style="margin-bottom:24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <label style="font-size:0.85rem; color:var(--text);">Ability Orbs per Player</label>
+        <span id="orb-display" class="neon-blue orb" style="font-size:1.1rem; font-weight:700;">5</span>
+      </div>
+      <input type="range" id="orb-slider" min="1" max="15" value="5">
+      <div style="display:flex; justify-content:space-between; font-size:0.65rem; color:var(--muted); margin-top:4px; font-family:'Share Tech Mono',monospace;">
+        <span>1 MIN</span><span>15 MAX</span>
+      </div>
+    </div>
+
+    <div style="margin-bottom:24px;">
+      <label style="font-size:0.85rem; color:var(--text); display:block; margin-bottom:10px;">Fog of War</label>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-blue" id="fog-on" onclick="setFog(true)" style="flex:1;">ENABLED</button>
+        <button class="btn btn-ghost" id="fog-off" onclick="setFog(false)" style="flex:1;">DISABLED</button>
+      </div>
+    </div>
+
+    <button class="btn btn-blue" onclick="startArmory()" style="width:100%; font-size:0.85rem; padding:14px;">
+      ▶ ENTER THE ARMORY
+    </button>
+  </div>
+
+  <div style="font-size:0.7rem; color:var(--muted); text-align:center; max-width:400px; line-height:1.8; font-family:'Share Tech Mono',monospace;">
+    TWO PLAYERS — SAME SCREEN — HOTSEAT MODE<br>
+    DRAFT YOUR AUGMENTATIONS IN SECRET
+  </div>
+</div>
+
+<!-- ==================== ARMORY SCREEN ==================== -->
+<div id="armory-screen" class="screen" style="flex-direction:column; align-items:center; padding:20px; gap:16px;">
+  <div style="display:flex; align-items:center; justify-content:space-between; width:100%; max-width:1000px;">
+    <div>
+      <div class="orb" style="font-size:0.6rem; letter-spacing:0.2em; color:var(--muted);">ARMORY PHASE</div>
+      <h2 id="armory-title" class="orb neon-blue" style="font-size:1.3rem; font-weight:700; letter-spacing:0.1em;">PLAYER 1 — SETUP</h2>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:0.7rem; color:var(--muted); font-family:'Share Tech Mono',monospace; margin-bottom:4px;">ABILITY ORBS</div>
+      <div id="orb-pips" style="display:flex; gap:5px; justify-content:flex-end; flex-wrap:wrap; max-width:200px;"></div>
+      <div class="mono" style="font-size:0.75rem; margin-top:4px;"><span id="orbs-left" class="neon-blue">5</span> remaining</div>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:16px; width:100%; max-width:1000px; flex:1;">
+    <!-- PIECE LIST -->
+    <div class="panel" style="width:200px; flex-shrink:0; padding:12px; overflow-y:auto;">
+      <div class="orb" style="font-size:0.55rem; letter-spacing:0.15em; color:var(--muted); margin-bottom:10px;">YOUR PIECES</div>
+      <div id="piece-list"></div>
+    </div>
+
+    <!-- ABILITY GRID -->
+    <div class="panel" style="flex:1; padding:12px; overflow-y:auto;">
+      <div class="orb" style="font-size:0.55rem; letter-spacing:0.15em; color:var(--muted); margin-bottom:10px;">ABILITIES — SELECT FOR CHOSEN PIECE</div>
+      <div id="ability-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:8px;"></div>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:12px; width:100%; max-width:1000px;">
+    <button class="btn btn-ghost" onclick="clearPieceAbility()" style="flex:1;">CLEAR SELECTION</button>
+    <button class="btn btn-blue" id="finish-setup-btn" onclick="finishSetup()" style="flex:2;">FINISH SETUP →</button>
+  </div>
+</div>
+
+<!-- ==================== ROTATE SCREEN ==================== -->
+<div id="rotate-screen" class="screen" style="align-items:center; justify-content:center; flex-direction:column; gap:24px;">
+  <div style="text-align:center;">
+    <div id="rotate-icon" style="font-size:4rem; margin-bottom:16px; animation:glow-pulse 2s infinite;">⟳</div>
+    <h2 id="rotate-title" class="orb" style="font-size:1.5rem; letter-spacing:0.1em;"></h2>
+    <p id="rotate-sub" style="color:var(--muted); font-size:0.85rem; margin-top:8px; font-family:'Share Tech Mono',monospace;"></p>
+  </div>
+  <button class="btn btn-blue" id="rotate-btn" onclick="confirmReady()" style="font-size:0.85rem; padding:14px 40px;">
+    ✓ READY
+  </button>
+</div>
+
+<!-- ==================== GAME SCREEN ==================== -->
+<div id="game-screen" class="screen" style="flex-direction:column;">
+  <!-- TOP BAR -->
+  <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 16px; border-bottom:1px solid var(--border); flex-shrink:0;">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <span class="orb" style="font-size:0.65rem; letter-spacing:0.15em; color:var(--muted);">CHESS:D&A</span>
+      <div id="turn-indicator" class="orb" style="font-size:0.8rem;"></div>
+    </div>
+    <div id="status-bar" style="color:var(--muted);"></div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn btn-ghost" onclick="activateAbilityMode()" id="use-ability-btn" style="font-size:0.65rem; padding:6px 14px; display:none;">USE ABILITY</button>
+      <button class="btn btn-ghost" onclick="confirmNewGame()" style="font-size:0.65rem; padding:6px 14px;">NEW GAME</button>
+    </div>
+  </div>
+
+  <div style="display:flex; flex:1; overflow:hidden;">
+    <!-- LEFT SIDEBAR -->
+    <div id="sidebar-left" style="width:200px; flex-shrink:0; padding:12px; border-right:1px solid var(--border); overflow-y:auto;">
+      <div class="orb neon-blue" style="font-size:0.6rem; letter-spacing:0.15em; margin-bottom:12px;">PLAYER 1</div>
+      <div id="p1-info"></div>
+      <div class="divider"></div>
+      <div style="font-size:0.7rem; color:var(--muted); font-family:'Share Tech Mono',monospace; margin-bottom:8px;">CAPTURED</div>
+      <div id="p1-captured" style="font-size:1.1rem; line-height:1.8; word-break:break-all;"></div>
+    </div>
+
+    <!-- BOARD AREA -->
+    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:12px; gap:8px;">
+      <!-- COORD: TOP -->
+      <div style="display:flex; gap:0; margin-left:24px;">
+        <div id="top-coords" style="display:flex;"></div>
+      </div>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <!-- COORD: LEFT -->
+        <div id="left-coords" style="display:flex; flex-direction:column;"></div>
+        <div id="board-container"></div>
+        <!-- COORD: RIGHT -->
+        <div id="right-coords" style="display:flex; flex-direction:column;"></div>
+      </div>
+      <div id="game-message" style="font-family:'Share Tech Mono',monospace; font-size:0.8rem; color:var(--p1); min-height:20px; text-align:center;"></div>
+    </div>
+
+    <!-- RIGHT SIDEBAR -->
+    <div id="sidebar-right" style="width:200px; flex-shrink:0; padding:12px; border-left:1px solid var(--border); overflow-y:auto;">
+      <div class="orb neon-red" style="font-size:0.6rem; letter-spacing:0.15em; margin-bottom:12px;">PLAYER 2</div>
+      <div id="p2-info"></div>
+      <div class="divider"></div>
+      <div style="font-size:0.7rem; color:var(--muted); font-family:'Share Tech Mono',monospace; margin-bottom:8px;">CAPTURED</div>
+      <div id="p2-captured" style="font-size:1.1rem; line-height:1.8; word-break:break-all;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODAL ==================== -->
+<div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:500; align-items:center; justify-content:center;">
+  <div class="panel" style="max-width:400px; width:90%; padding:28px; text-align:center;">
+    <h3 id="modal-title" class="orb" style="font-size:1.2rem; margin-bottom:12px;"></h3>
+    <p id="modal-body" style="font-size:0.85rem; color:var(--muted); margin-bottom:20px; line-height:1.6;"></p>
+    <div style="display:flex; gap:10px; justify-content:center;" id="modal-buttons"></div>
+  </div>
+</div>
+
+<!-- TOOLTIP -->
+<div id="ability-tooltip"></div>
+
+<script>
+// =====================================================
+// ABILITIES DATA
+// =====================================================
+const ABILITIES = [
+  // MOVEMENT
+  { id:'scout', name:'Scout', cat:'movement', icon:'👁', desc:'+1 move range on all movement directions.', once:false },
+  { id:'leap', name:'Leap', cat:'movement', icon:'🦗', desc:'Jump over 1 piece when moving. Once per game.', once:true },
+  { id:'teleport', name:'Teleport', cat:'movement', icon:'✨', desc:'Swap position with any friendly Pawn. Once per game.', once:true },
+  { id:'retreat', name:'Retreat', cat:'movement', icon:'↩', desc:'Can move backward 2 squares once.', once:true },
+  { id:'drift', name:'Drift', cat:'movement', icon:'↔', desc:'Can move 1 square sideways like a Rook.', once:false },
+  // COMBAT
+  { id:'shield', name:'Shield', cat:'combat', icon:'🛡', desc:'Survives the first capture attempt. One use.', once:true },
+  { id:'mirror', name:'Mirror', cat:'combat', icon:'🪞', desc:'When captured, the capturer is also removed.', once:false },
+  { id:'assassin', name:'Assassin', cat:'combat', icon:'🗡', desc:'Invisible in Fog of War to the enemy.', once:false },
+  { id:'sniper', name:'Sniper', cat:'combat', icon:'🎯', desc:'Can capture a piece 2 squares away in a straight line. Once per game.', once:true },
+  { id:'kamikaze', name:'Kamikaze', cat:'combat', icon:'💥', desc:'On death, explodes destroying all pieces in a 3×3 area.', once:false },
+  // CONTROL
+  { id:'stun', name:'Stun', cat:'control', icon:'⚡', desc:'Adjacent enemy pieces cannot move for 1 turn. Activate as action.', once:false },
+  { id:'gravity', name:'Gravity', cat:'control', icon:'🌀', desc:'Enemies within 2 squares lose 1 square of movement range.', once:false },
+  { id:'push', name:'Push', cat:'control', icon:'👊', desc:'Push an adjacent piece 1 square forward. Activate as action.', once:false },
+  { id:'portal', name:'Portal', cat:'control', icon:'🌀', desc:'Place a gate; next turn you can teleport to it. Once per game.', once:true },
+  { id:'wind', name:'Wind', cat:'control', icon:'🌬', desc:'Blow an adjacent enemy to a random neighboring square. Activate as action.', once:false },
+  // SUPPORT
+  { id:'medic', name:'Medic', cat:'support', icon:'💊', desc:'When this piece captures, revive one of your captured pawns nearby.', once:false },
+  { id:'commander', name:'Commander', cat:'support', icon:'⭐', desc:'All adjacent allied pieces get +1 range.', once:false },
+  { id:'sacrifice', name:'Sacrifice', cat:'support', icon:'💀', desc:'Sacrifice this piece to block a check on your King. Activate when in check.', once:true },
+  { id:'architect', name:'Architect', cat:'support', icon:'🧱', desc:'Turn an adjacent empty square into a Wall for 2 turns. Activate as action.', once:true },
+  { id:'vision', name:'Vision', cat:'support', icon:'🔭', desc:'Removes Fog of War in a 3×3 area around this piece permanently.', once:false },
+  // CHAOS
+  { id:'timewarp', name:'Time Warp', cat:'chaos', icon:'⏪', desc:'Undo the last move. Once per game.', once:true },
+  { id:'imposter', name:'Imposter', cat:'chaos', icon:'🎭', desc:'Appears as an enemy piece type to the opponent.', once:false },
+  { id:'greed', name:'Greed', cat:'chaos', icon:'💎', desc:'Earn an extra ability orb if this piece captures a Queen.', once:false },
+  { id:'curse', name:'Curse', cat:'chaos', icon:'☠', desc:'Pieces captured by this piece cannot be revived by Medic.', once:false },
+  { id:'voodoo', name:'Voodoo', cat:'chaos', icon:'🪆', desc:'Damage to this piece is also applied to the enemy King (loses 1 HP sim).', once:false },
+  { id:'blink', name:'Blink', cat:'chaos', icon:'👁‍🗨', desc:'Teleport to any empty square, then return next turn. Once per game.', once:true },
+  { id:'magnet', name:'Magnet', cat:'chaos', icon:'🧲', desc:'Pull an adjacent enemy piece 1 square closer. Activate as action.', once:false },
+  { id:'shadow', name:'Shadow', cat:'chaos', icon:'👤', desc:'This piece can move through other pieces (does not capture them).', once:false },
+  { id:'rage', name:'Rage', cat:'chaos', icon:'🔥', desc:'If an ally is captured, this piece gains infinite range for 1 turn.', once:false },
+  { id:'luck', name:'Luck', cat:'chaos', icon:'🍀', desc:'50% chance to survive any capture attempt.', once:false },
+];
+
+const CAT_COLORS = {
+  movement: '#00ffaa', combat: '#ff6b35', control: '#a855f7',
+  support: '#fbbf24', chaos: '#ec4899'
+};
+
+// =====================================================
+// PIECE DATA
+// =====================================================
+const PIECE_SYMBOLS = {
+  wK:'♔', wQ:'♕', wR:'♖', wB:'♗', wN:'♘', wP:'♙',
+  bK:'♚', bQ:'♛', bR:'♜', bB:'♝', bN:'♞', bP:'♟'
+};
+
+const PIECE_NAMES = { K:'King', Q:'Queen', R:'Rook', B:'Bishop', N:'Knight', P:'Pawn' };
+
+// =====================================================
+// GAME STATE
+// =====================================================
+let state = {
+  orbCount: 5,
+  fogEnabled: true,
+  currentArmoryPlayer: 1,
+  armoryDraft: { 1: {}, 2: {} },
+  selectedDraftPiece: null,
+  selectedAbility: null,
+  orbsUsed: { 1: 0, 2: 0 },
+
+  // Game
+  board: [], // 8x8 array of piece objects or null
+  currentPlayer: 1,
+  selectedCell: null,
+  validMoves: [],
+  turn: 1,
+  capturedBy: { 1: [], 2: [] },
+  gamePhase: 'start', // start|armory|rotate|game|over
+
+  // Ability state
+  walls: [], // {row,col,turnsLeft}
+  stunned: [], // {row,col,turnsLeft}
+  blinkReturn: null, // {piece, row, col}
+  portalGate: null, // {row,col,player}
+  abilityMode: false,
+  abilityModeType: null,
+  rageActive: { 1: false, 2: false },
+  kingHP: { 1: 3, 2: 3 },
+  usedOnce: {}, // key: pieceId -> used
+
+  lastMove: null, // for time warp
+  prevBoard: null,
+  prevCaptured: null,
+
+  pieceIds: {}, // pieceId counter
+  nextPieceId: 0,
+};
+
+function pid() { return state.nextPieceId++; }
+
+// =====================================================
+// INITIAL SETUP
+// =====================================================
+document.getElementById('orb-slider').addEventListener('input', function() {
+  document.getElementById('orb-display').textContent = this.value;
+  state.orbCount = parseInt(this.value);
+});
+
+let fogChoice = true;
+function setFog(val) {
+  fogChoice = val;
+  document.getElementById('fog-on').className = 'btn ' + (val ? 'btn-blue' : 'btn-ghost');
+  document.getElementById('fog-off').className = 'btn ' + (!val ? 'btn-red' : 'btn-ghost');
+}
+
+function startArmory() {
+  state.orbCount = parseInt(document.getElementById('orb-slider').value);
+  state.fogEnabled = fogChoice;
+  state.currentArmoryPlayer = 1;
+  state.armoryDraft = { 1: {}, 2: {} };
+  state.orbsUsed = { 1: 0, 2: 0 };
+  showScreen('armory-screen');
+  renderArmory();
+}
+
+// =====================================================
+// ARMORY PHASE
+// =====================================================
+function getPieceList(player) {
+  // Standard chess piece set
+  const color = player === 1 ? 'w' : 'b';
+  return [
+    { key: color+'K', label: PIECE_SYMBOLS[color+'K'], name:'King', count:1 },
+    { key: color+'Q', label: PIECE_SYMBOLS[color+'Q'], name:'Queen', count:1 },
+    { key: color+'R', label: PIECE_SYMBOLS[color+'R'], name:'Rook', count:2 },
+    { key: color+'B', label: PIECE_SYMBOLS[color+'B'], name:'Bishop', count:2 },
+    { key: color+'N', label: PIECE_SYMBOLS[color+'N'], name:'Knight', count:2 },
+    { key: color+'P1', label: PIECE_SYMBOLS[color+'P'], name:'Pawn A', count:1, pawnIdx:0 },
+    { key: color+'P2', label: PIECE_SYMBOLS[color+'P'], name:'Pawn B', count:1, pawnIdx:1 },
+    { key: color+'P3', label: PIECE_SYMBOLS[color+'P'], name:'Pawn C', count:1, pawnIdx:2 },
+    { key: color+'P4', label: PIECE_SYMBOLS[color+'P'], name:'Pawn D', count:1, pawnIdx:3 },
+    { key: color+'P5', label: PIECE_SYMBOLS[color+'P'], name:'Pawn E', count:1, pawnIdx:4 },
+    { key: color+'P6', label: PIECE_SYMBOLS[color+'P'], name:'Pawn F', count:1, pawnIdx:5 },
+    { key: color+'P7', label: PIECE_SYMBOLS[color+'P'], name:'Pawn G', count:1, pawnIdx:6 },
+    { key: color+'P8', label: PIECE_SYMBOLS[color+'P'], name:'Pawn H', count:1, pawnIdx:7 },
+  ];
+}
+
+function renderArmory() {
+  const p = state.currentArmoryPlayer;
+  const color = p === 1 ? 'neon-blue' : 'neon-red';
+  document.getElementById('armory-title').className = 'orb ' + color;
+  document.getElementById('armory-title').textContent = `PLAYER ${p} — SETUP`;
+
+  // Orb pips
+  const orbsLeft = state.orbCount - state.orbsUsed[p];
+  document.getElementById('orbs-left').textContent = orbsLeft;
+  document.getElementById('orbs-left').className = p === 1 ? 'neon-blue' : 'neon-red';
+  const pips = document.getElementById('orb-pips');
+  pips.innerHTML = '';
+  for (let i = 0; i < state.orbCount; i++) {
+    const d = document.createElement('div');
+    d.className = 'orb-pip ' + (i < orbsLeft ? (p===1?'orb-active':'orb-active-p2') : 'orb-spent');
+    pips.appendChild(d);
+  }
+
+  // Piece list
+  const pieces = getPieceList(p);
+  const pl = document.getElementById('piece-list');
+  pl.innerHTML = '';
+  pieces.forEach(piece => {
+    const assigned = state.armoryDraft[p][piece.key];
+    const isActive = state.selectedDraftPiece === piece.key;
+    const row = document.createElement('div');
+    row.className = 'draft-piece-row' + (isActive ? ' active-piece' : '');
+    row.innerHTML = `
+      <span style="font-size:1.3rem;">${piece.label}</span>
+      <div style="flex:1; min-width:0;">
+        <div style="font-size:0.75rem;">${piece.name}</div>
+        ${assigned ? `<div class="assigned-tag">${assigned.icon} ${assigned.name}</div>` : ''}
+      </div>
+    `;
+    row.onclick = () => {
+      state.selectedDraftPiece = piece.key;
+      state.selectedAbility = null;
+      renderArmory();
+    };
+    pl.appendChild(row);
+  });
+
+  // Ability grid
+  const ag = document.getElementById('ability-grid');
+  ag.innerHTML = '';
+  const orbsLeftNow = state.orbCount - state.orbsUsed[p];
+  ABILITIES.forEach(ab => {
+    // Check if already used by another piece
+    const usedByOther = Object.entries(state.armoryDraft[p]).some(([k,v]) => v && v.id === ab.id && k !== state.selectedDraftPiece);
+    const assignedToThis = state.armoryDraft[p][state.selectedDraftPiece]?.id === ab.id;
+    const canAfford = orbsLeftNow > 0 || assignedToThis;
+    const isSelected = state.selectedAbility === ab.id;
+
+    const card = document.createElement('div');
+    card.className = 'ability-card' + (isSelected||assignedToThis?' selected-ability':'') + (usedByOther||(!canAfford&&!assignedToThis)?' disabled-ability':'');
+
+    card.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+        <span style="font-size:1.1rem;">${ab.icon}</span>
+        <span style="font-size:0.8rem; font-weight:600; color:${CAT_COLORS[ab.cat]};">${ab.name}</span>
+        ${ab.once?'<span style="font-size:0.55rem; color:var(--muted); font-family:\'Share Tech Mono\',monospace; margin-left:auto;">1×</span>':''}
+      </div>
+      <div style="font-size:0.7rem; color:var(--muted); line-height:1.4;">${ab.desc}</div>
+    `;
+
+    card.addEventListener('mouseenter', (e) => showTooltip(e, ab));
+    card.addEventListener('mouseleave', hideTooltip);
+
+    if (!usedByOther && (canAfford || assignedToThis)) {
+      card.onclick = () => assignAbility(ab);
+    }
+
+    ag.appendChild(card);
+  });
+}
+
+function assignAbility(ab) {
+  const p = state.currentArmoryPlayer;
+  if (!state.selectedDraftPiece) return;
+
+  const currentAssigned = state.armoryDraft[p][state.selectedDraftPiece];
+  if (currentAssigned) {
+    // Refund orb
+    state.orbsUsed[p]--;
+    delete state.armoryDraft[p][state.selectedDraftPiece];
+  }
+  if (!currentAssigned || currentAssigned.id !== ab.id) {
+    const orbsLeft = state.orbCount - state.orbsUsed[p];
+    if (orbsLeft <= 0) return;
+    state.armoryDraft[p][state.selectedDraftPiece] = ab;
+    state.orbsUsed[p]++;
+    state.selectedAbility = ab.id;
+  }
+  renderArmory();
+}
+
+function clearPieceAbility() {
+  const p = state.currentArmoryPlayer;
+  if (!state.selectedDraftPiece) return;
+  const current = state.armoryDraft[p][state.selectedDraftPiece];
+  if (current) {
+    state.orbsUsed[p]--;
+    delete state.armoryDraft[p][state.selectedDraftPiece];
+  }
+  state.selectedAbility = null;
+  renderArmory();
+}
+
+function finishSetup() {
+  if (state.currentArmoryPlayer === 1) {
+    state.currentArmoryPlayer = 2;
+    showRotateScreen('PASS THE DEVICE', 'Player 2, do not look until Player 1 steps away.', () => {
+      showScreen('armory-screen');
+      state.selectedDraftPiece = null;
+      state.selectedAbility = null;
+      renderArmory();
+    });
+  } else {
+    initGame();
+  }
+}
+
+// =====================================================
+// ROTATE / TRANSITION SCREEN
+// =====================================================
+let rotateCallback = null;
+
+function showRotateScreen(title, sub, cb, titleClass='') {
+  rotateCallback = cb;
+  document.getElementById('rotate-title').textContent = title;
+  document.getElementById('rotate-title').className = 'orb ' + titleClass;
+  document.getElementById('rotate-sub').textContent = sub;
+  showScreen('rotate-screen');
+}
+
+function confirmReady() {
+  if (rotateCallback) {
+    const cb = rotateCallback;
+    rotateCallback = null;
+    cb();
+  }
+}
+
+// =====================================================
+// GAME INITIALIZATION
+// =====================================================
+function initGame() {
+  state.board = createInitialBoard();
+  state.currentPlayer = 1;
+  state.turn = 1;
+  state.capturedBy = { 1: [], 2: [] };
+  state.walls = [];
+  state.stunned = [];
+  state.blinkReturn = null;
+  state.portalGate = null;
+  state.abilityMode = false;
+  state.rageActive = { 1: false, 2: false };
+  state.kingHP = { 1: 3, 2: 3 };
+  state.usedOnce = {};
+  state.lastMove = null;
+  state.prevBoard = null;
+  state.prevCaptured = null;
+  state.selectedCell = null;
+  state.validMoves = [];
+  state.gamePhase = 'game';
+  state.nextPieceId = 0;
+  assignAbilitiesToBoard();
+  showScreen('game-screen');
+  renderGame();
+}
+
+function createInitialBoard() {
+  const b = Array(8).fill(null).map(() => Array(8).fill(null));
+  // Row 0 = rank 8 (top, black)
+  const backRow = ['R','N','B','Q','K','B','N','R'];
+  backRow.forEach((t,c) => {
+    b[0][c] = makePiece('b', t, 0, c);
+    b[7][c] = makePiece('w', t, 7, c);
+  });
+  for (let c=0;c<8;c++) {
+    b[1][c] = makePiece('b','P',1,c);
+    b[6][c] = makePiece('w','P',6,c);
+  }
+  return b;
+}
+
+function makePiece(color, type, row, col) {
+  return {
+    id: state.nextPieceId++,
+    color, type,
+    row, col,
+    moved: false,
+    ability: null,
+    shieldUsed: false,
+    luckyRoll: false,
+    stunTurns: 0,
+    imposterType: null,
+    blinkOrigin: null,
+    raging: false,
+  };
+}
+
+function assignAbilitiesToBoard() {
+  // Map draft keys to actual pieces
+  const keyToPiece = (player, key) => {
+    const color = player === 1 ? 'w' : 'b';
+    const row = player === 1 ? 7 : 0;
+    const pawnRow = player === 1 ? 6 : 1;
+
+    if (key === color+'K') return findPiece(color,'K');
+    if (key === color+'Q') return findPiece(color,'Q');
+    if (key.startsWith(color+'R')) { const rs = findPieces(color,'R'); return rs[key===color+'R'?0:0] || rs[0]; }
+    if (key.startsWith(color+'B')) { const bs = findPieces(color,'B'); return bs[0]; }
+    if (key.startsWith(color+'N')) { const ns = findPieces(color,'N'); return ns[0]; }
+    if (key.startsWith(color+'P')) {
+      const idx = parseInt(key.slice(-1)) - 1;
+      const pawns = findPieces(color,'P');
+      return pawns[idx] || pawns[0];
+    }
+  };
+
+  [1,2].forEach(p => {
+    Object.entries(state.armoryDraft[p]).forEach(([key, ab]) => {
+      const color = p === 1 ? 'w' : 'b';
+      const pieces = getAllPieces(color);
+      // Map key to piece index
+      let piece = null;
+      if (key.endsWith('K')) piece = pieces.find(p=>p.type==='K');
+      else if (key.endsWith('Q')) piece = pieces.find(p=>p.type==='Q');
+      else if (key.includes('R')) piece = pieces.find(p=>p.type==='R' && !p.ability);
+      else if (key.includes('B')) piece = pieces.find(p=>p.type==='B' && !p.ability);
+      else if (key.includes('N')) piece = pieces.find(p=>p.type==='N' && !p.ability);
+      else if (key.includes('P')) {
+        const idx = parseInt(key.slice(-1)) - 1;
+        const pawns = pieces.filter(p=>p.type==='P');
+        piece = pawns[idx];
+      }
+      if (piece) {
+        piece.ability = ab;
+        if (ab.id === 'imposter') {
+          const enemyTypes = ['Q','R','B','N'];
+          piece.imposterType = enemyTypes[Math.floor(Math.random()*enemyTypes.length)];
+        }
+      }
+    });
+  });
+}
+
+function getAllPieces(color) {
+  const pieces = [];
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    if (state.board[r][c] && state.board[r][c].color === color) pieces.push(state.board[r][c]);
+  }
+  return pieces;
+}
+
+function findPiece(color, type) {
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const p = state.board[r][c];
+    if (p && p.color===color && p.type===type) return p;
+  }
+  return null;
+}
+
+function findPieces(color, type) {
+  const res = [];
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const p = state.board[r][c];
+    if (p && p.color===color && p.type===type) res.push(p);
+  }
+  return res;
+}
+
+// =====================================================
+// MOVE GENERATION
+// =====================================================
+function getValidMoves(piece) {
+  const moves = [];
+  const { color, type, row, col, ability } = piece;
+  const enemy = color === 'w' ? 'b' : 'w';
+  const dir = color === 'w' ? -1 : 1;
+  const extraRange = hasAdjCommander(piece) ? 1 : 0;
+  const isStunned = piece.stunTurns > 0;
+  if (isStunned) return [];
+
+  const inBounds = (r,c) => r>=0&&r<8&&c>=0&&c<8;
+  const isEmpty = (r,c) => inBounds(r,c) && !state.board[r][c] && !isWall(r,c);
+  const isEnemy = (r,c) => inBounds(r,c) && state.board[r][c] && state.board[r][c].color===enemy;
+  const isWall = (r,c) => state.walls.some(w=>w.row===r&&w.col===c);
+  const canPassThrough = ability?.id === 'shadow';
+
+  const addSlide = (dr,dc,range) => {
+    for (let i=1;i<=range;i++) {
+      const nr=row+dr*i, nc=col+dc*i;
+      if (!inBounds(nr,nc)) break;
+      if (isWall(nr,nc)) break;
+      if (state.board[nr][nc]) {
+        if (state.board[nr][nc].color===enemy) moves.push({row:nr,col:nc,capture:true});
+        if (!canPassThrough) break;
+      } else {
+        moves.push({row:nr,col:nc,capture:false});
+      }
+    }
+  };
+
+  const scoutBonus = ability?.id === 'scout' ? 1 : 0;
+
+  if (type === 'P') {
+    const range = 1 + scoutBonus + extraRange;
+    // Forward
+    if (isEmpty(row+dir,col)) {
+      moves.push({row:row+dir,col,capture:false});
+      // Double on first move
+      if (!piece.moved && isEmpty(row+dir*2,col) && range < 2) {
+        moves.push({row:row+dir*2,col,capture:false});
+      }
+    }
+    if (!piece.moved && isEmpty(row+dir,col) && isEmpty(row+dir*2,col)) {
+      if (!moves.find(m=>m.row===row+dir*2&&m.col===col))
+        moves.push({row:row+dir*2,col,capture:false});
+    }
+    // Diagonal captures
+    [-1,1].forEach(dc => {
+      if (isEnemy(row+dir,col+dc)) moves.push({row:row+dir,col:col+dc,capture:true});
+    });
+    // Retreat ability
+    if (ability?.id==='retreat' && !isUsed(piece,'retreat')) {
+      if (isEmpty(row-dir*2,col)) moves.push({row:row-dir*2,col,capture:false,abilityMove:'retreat'});
+    }
+    // Drift
+    if (ability?.id==='drift') {
+      [-1,1].forEach(dc=>{
+        if (isEmpty(row,col+dc)) moves.push({row,col:col+dc,capture:false});
+      });
+    }
+    // Sniper
+    if (ability?.id==='sniper' && !isUsed(piece,'sniper')) {
+      [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc])=>{
+        const nr=row+dr*2,nc=col+dc*2;
+        if (isEnemy(nr,nc)) moves.push({row:nr,col:nc,capture:true,abilityMove:'sniper'});
+      });
+    }
+  }
+  else if (type === 'R') {
+    const range = 7 + scoutBonus + extraRange;
+    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dr,dc])=>addSlide(dr,dc,range));
+    if (ability?.id==='drift') {
+      [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc])=>addSlide(dr,dc,1+extraRange));
+    }
+  }
+  else if (type === 'B') {
+    const range = 7 + scoutBonus + extraRange;
+    [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc])=>addSlide(dr,dc,range));
+    if (ability?.id==='drift') {
+      [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dr,dc])=>addSlide(dr,dc,1+extraRange));
+    }
+  }
+  else if (type === 'Q') {
+    const range = 7 + scoutBonus + extraRange;
+    [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc])=>addSlide(dr,dc,range));
+  }
+  else if (type === 'N') {
+    const knightMoves = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+    knightMoves.forEach(([dr,dc])=>{
+      const nr=row+dr,nc=col+dc;
+      if (!inBounds(nr,nc)) return;
+      if (isWall(nr,nc) && !canPassThrough) return;
+      if (state.board[nr][nc]) {
+        if (state.board[nr][nc].color===enemy) moves.push({row:nr,col:nc,capture:true});
+      } else moves.push({row:nr,col:nc,capture:false});
+    });
+    if (ability?.id==='scout') {
+      [[-3,-1],[-3,1],[-1,-3],[-1,3],[1,-3],[1,3],[3,-1],[3,1]].forEach(([dr,dc])=>{
+        const nr=row+dr,nc=col+dc;
+        if (!inBounds(nr,nc)) return;
+        if (state.board[nr][nc]) {
+          if (state.board[nr][nc].color===enemy) moves.push({row:nr,col:nc,capture:true});
+        } else moves.push({row:nr,col:nc,capture:false});
+      });
+    }
+  }
+  else if (type === 'K') {
+    const range = 1 + scoutBonus + extraRange;
+    for (let dr=-range;dr<=range;dr++) for (let dc=-range;dc<=range;dc++) {
+      if (dr===0&&dc===0) continue;
+      const nr=row+dr,nc=col+dc;
+      if (!inBounds(nr,nc)||isWall(nr,nc)) continue;
+      if (state.board[nr][nc]) {
+        if (state.board[nr][nc].color===enemy) moves.push({row:nr,col:nc,capture:true});
+      } else moves.push({row:nr,col:nc,capture:false});
+    }
+    // Castling (simple)
+    if (!piece.moved) {
+      // Kingside
+      const r = color==='w'?7:0;
+      if (isEmpty(r,5)&&isEmpty(r,6)&&state.board[r][7]&&state.board[r][7].type==='R'&&!state.board[r][7].moved)
+        moves.push({row:r,col:6,capture:false,castle:'kingside'});
+      if (isEmpty(r,1)&&isEmpty(r,2)&&isEmpty(r,3)&&state.board[r][0]&&state.board[r][0].type==='R'&&!state.board[r][0].moved)
+        moves.push({row:r,col:2,capture:false,castle:'queenside'});
+    }
+  }
+
+  // Rage: infinite range
+  if (piece.raging && (type==='P'||type==='N'||type==='B'||type==='R'||type==='Q')) {
+    [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc])=>addSlide(dr,dc,7));
+  }
+
+  // Sniper for non-pawn
+  if (ability?.id==='sniper' && type!=='P' && !isUsed(piece,'sniper')) {
+    [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc])=>{
+      const nr=row+dr*2,nc=col+dc*2;
+      if (inBounds(nr,nc) && isEnemy(nr,nc)) moves.push({row:nr,col:nc,capture:true,abilityMove:'sniper'});
+    });
+  }
+
+  return moves;
+}
+
+function isUsed(piece, abilityId) {
+  return state.usedOnce[piece.id+'_'+abilityId] === true;
+}
+function markUsed(piece, abilityId) {
+  state.usedOnce[piece.id+'_'+abilityId] = true;
+}
+
+function hasAdjCommander(piece) {
+  const { color, row, col } = piece;
+  for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+    if (dr===0&&dc===0) continue;
+    const nr=row+dr, nc=col+dc;
+    if (nr<0||nr>7||nc<0||nc>7) continue;
+    const n = state.board[nr][nc];
+    if (n && n.color===color && n.ability?.id==='commander') return true;
+  }
+  return false;
+}
+
+// =====================================================
+// GAME RENDERING
+// =====================================================
+function renderGame() {
+  renderBoard();
+  renderSidebars();
+  renderTurnIndicator();
+}
+
+function renderBoard() {
+  const boardEl = document.getElementById('board-container');
+  boardEl.innerHTML = '';
+
+  const currentColor = state.currentPlayer === 1 ? 'w' : 'b';
+  const visibleCells = state.fogEnabled ? getFogVisibility(currentColor) : null;
+
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const cell = document.createElement('div');
+    const isLight = (r+c)%2===0;
+    cell.className = 'cell ' + (isLight?'light':'dark');
+    cell.dataset.row = r;
+    cell.dataset.col = c;
+
+    const isWall = state.walls.some(w=>w.row===r&&w.col===c);
+    if (isWall) cell.classList.add('wall-cell');
+
+    // Fog
+    const inFog = state.fogEnabled && visibleCells && !visibleCells.has(`${r},${c}`);
+    if (inFog) cell.classList.add('fog');
+
+    // Last move highlight
+    if (state.lastMove) {
+      const lm = state.lastMove;
+      if ((lm.fromRow===r&&lm.fromCol===c)||(lm.toRow===r&&lm.toCol===c))
+        cell.classList.add('highlight-last');
+    }
+
+    // Portal gate
+    if (state.portalGate && state.portalGate.row===r && state.portalGate.col===c) {
+      cell.style.background = 'rgba(168,85,247,0.3)';
+      cell.style.boxShadow = 'inset 0 0 0 2px #a855f7';
+    }
+
+    // Selected cell
+    if (state.selectedCell && state.selectedCell.row===r && state.selectedCell.col===c)
+      cell.classList.add('selected');
+
+    // Valid moves
+    const vm = state.validMoves.find(m=>m.row===r&&m.col===c);
+    if (vm) {
+      if (vm.capture) cell.classList.add('valid-capture');
+      else cell.classList.add('valid-move');
+    }
+
+    // Piece
+    const piece = state.board[r][c];
+    if (piece) {
+      const inner = document.createElement('div');
+      inner.className = 'piece-inner';
+      inner.dataset.pieceId = piece.id;
+
+      let symbol = PIECE_SYMBOLS[piece.color+piece.type];
+      // Imposter: show wrong type to enemy
+      if (piece.ability?.id==='imposter' && piece.color!==currentColor && piece.imposterType) {
+        const enemyColor = piece.color==='w'?'b':'w';
+        symbol = PIECE_SYMBOLS[enemyColor+piece.imposterType] || symbol;
+      }
+
+      const span = document.createElement('span');
+      span.textContent = symbol;
+      span.style.fontSize = '2rem';
+      span.style.textShadow = piece.color==='w'
+        ? '0 0 8px rgba(0,212,255,0.6)'
+        : '0 0 8px rgba(255,40,85,0.6)';
+      span.style.filter = piece.stunTurns>0 ? 'brightness(0.4)' : '';
+
+      inner.appendChild(span);
+
+      // Ability badge
+      if (piece.ability && !inFog) {
+        const badge = document.createElement('div');
+        badge.className = 'piece-badge ' + (piece.color==='w'?'badge-p1':'badge-p2');
+        badge.textContent = piece.ability.icon;
+        badge.style.fontSize = '0.6rem';
+        inner.appendChild(badge);
+      }
+
+      // Shield ring
+      if (piece.ability?.id==='shield' && !piece.shieldUsed) {
+        const ring = document.createElement('div');
+        ring.className = 'shield-ring';
+        inner.appendChild(ring);
+      }
+
+      cell.appendChild(inner);
+    }
+
+    cell.addEventListener('click', () => onCellClick(r, c));
+    cell.addEventListener('mouseenter', (e) => {
+      if (piece && piece.ability) showTooltip(e, piece.ability);
+    });
+    cell.addEventListener('mouseleave', hideTooltip);
+
+    boardEl.appendChild(cell);
+  }
+
+  // Coordinates
+  renderCoords();
+}
+
+function renderCoords() {
+  const files = 'abcdefgh';
+  const top = document.getElementById('top-coords');
+  const left = document.getElementById('left-coords');
+  const right = document.getElementById('right-coords');
+  if (!top||!left||!right) return;
+  top.innerHTML = '';
+  left.innerHTML = '';
+  right.innerHTML = '';
+  for (let c=0;c<8;c++) {
+    const d = document.createElement('div');
+    d.style.cssText='width:72px;text-align:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
+    d.textContent=files[c];
+    top.appendChild(d);
+  }
+  for (let r=0;r<8;r++) {
+    const rank = 8-r;
+    const dl = document.createElement('div');
+    dl.style.cssText='width:20px;height:72px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
+    dl.textContent=rank;
+    left.appendChild(dl);
+    const dr = document.createElement('div');
+    dr.style.cssText='width:20px;height:72px;display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--muted);font-family:Share Tech Mono,monospace;';
+    dr.textContent=rank;
+    right.appendChild(dr);
+  }
+}
+
+function getFogVisibility(color) {
+  const visible = new Set();
+  const range = 2;
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const p = state.board[r][c];
+    if (!p || p.color!==color) continue;
+    const vRange = p.ability?.id==='vision' ? 3 : range;
+    for (let dr=-vRange;dr<=vRange;dr++) for (let dc=-vRange;dc<=vRange;dc++) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<8&&nc>=0&&nc<8) visible.add(`${nr},${nc}`);
+    }
+  }
+  return visible;
+}
+
+function renderSidebars() {
+  renderPlayerInfo(1, 'p1-info', 'p1-captured');
+  renderPlayerInfo(2, 'p2-info', 'p2-captured');
+}
+
+function renderPlayerInfo(player, infoId, captId) {
+  const color = player===1?'w':'b';
+  const el = document.getElementById(infoId);
+  const capt = document.getElementById(captId);
+
+  // Pieces with abilities
+  const pieces = getAllPieces(color);
+  let html = '';
+  pieces.filter(p=>p.ability).forEach(p=>{
+    const ab = p.ability;
+    const used = ab.once && isUsed(p, ab.id);
+    html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;opacity:${used?'0.35':'1'}">
+      <span style="font-size:1rem;">${PIECE_SYMBOLS[p.color+p.type]}</span>
+      <span style="font-size:0.7rem;color:${CAT_COLORS[ab.cat]};">${ab.icon} ${ab.name}</span>
+      ${used?'<span style="font-size:0.55rem;color:var(--muted);">used</span>':''}
+    </div>`;
+  });
+  el.innerHTML = html || '<div style="font-size:0.7rem;color:var(--muted);">No abilities assigned</div>';
+
+  // Captured
+  capt.textContent = state.capturedBy[player].map(p=>PIECE_SYMBOLS[p]).join('');
+}
+
+function renderTurnIndicator() {
+  const el = document.getElementById('turn-indicator');
+  const p = state.currentPlayer;
+  el.className = 'orb ' + (p===1?'neon-blue':'neon-red');
+  el.textContent = `PLAYER ${p} TURN`;
+
+  const statusEl = document.getElementById('status-bar');
+  const inCheck = isInCheck(p===1?'w':'b');
+  statusEl.textContent = inCheck ? `⚠ CHECK` : `Turn ${state.turn}`;
+  statusEl.style.color = inCheck ? 'var(--p2)' : 'var(--muted)';
+}
+
+// =====================================================
+// CLICK HANDLING
+// =====================================================
+function onCellClick(row, col) {
+  if (state.gamePhase !== 'game') return;
+
+  // Ability mode
+  if (state.abilityMode) {
+    handleAbilityTarget(row, col);
+    return;
+  }
+
+  const currentColor = state.currentPlayer === 1 ? 'w' : 'b';
+  const piece = state.board[row][col];
+
+  if (state.selectedCell) {
+    const sc = state.selectedCell;
+    const vm = state.validMoves.find(m=>m.row===row&&m.col===col);
+
+    if (vm) {
+      executeMove(sc.row, sc.col, row, col, vm);
+      return;
+    }
+
+    // Select different friendly piece
+    if (piece && piece.color===currentColor) {
+      state.selectedCell = {row,col};
+      state.validMoves = getValidMoves(piece);
+      renderBoard();
+      return;
+    }
+
+    // Deselect
+    state.selectedCell = null;
+    state.validMoves = [];
+    renderBoard();
+  } else {
+    if (piece && piece.color===currentColor) {
+      state.selectedCell = {row,col};
+      state.validMoves = getValidMoves(piece);
+      renderBoard();
+      showPieceInfo(piece);
+    }
+  }
+}
+
+function showPieceInfo(piece) {
+  const msg = document.getElementById('game-message');
+  if (piece.ability) {
+    msg.textContent = `${PIECE_SYMBOLS[piece.color+piece.type]} ${PIECE_NAMES[piece.type]} — ${piece.ability.icon} ${piece.ability.name}: ${piece.ability.desc}`;
+  } else {
+    msg.textContent = '';
+  }
+}
+
+// =====================================================
+// MOVE EXECUTION
+// =====================================================
+function executeMove(fromRow, fromCol, toRow, toCol, moveData) {
+  // Save state for undo
+  state.prevBoard = deepCloneBoard();
+  state.prevCaptured = { 1:[...state.capturedBy[1]], 2:[...state.capturedBy[2]] };
+
+  const piece = state.board[fromRow][fromCol];
+  const target = state.board[toRow][toCol];
+  const currentPlayer = state.currentPlayer;
+  const enemyPlayer = currentPlayer === 1 ? 2 : 1;
+
+  // Mark used for retreat/sniper
+  if (moveData.abilityMove === 'retreat') markUsed(piece,'retreat');
+  if (moveData.abilityMove === 'sniper') markUsed(piece,'sniper');
+
+  // Capture logic
+  let actualCapture = target !== null;
+  if (actualCapture) {
+    const captureResult = handleCapture(piece, target, currentPlayer, enemyPlayer);
+    if (!captureResult) return; // Move blocked
+  }
+
+  // Castling
+  if (moveData.castle) {
+    const r = piece.color==='w'?7:0;
+    if (moveData.castle==='kingside') {
+      state.board[r][5] = state.board[r][7];
+      state.board[r][7] = null;
+      if (state.board[r][5]) { state.board[r][5].col=5; state.board[r][5].moved=true; }
+    } else {
+      state.board[r][3] = state.board[r][0];
+      state.board[r][0] = null;
+      if (state.board[r][3]) { state.board[r][3].col=3; state.board[r][3].moved=true; }
+    }
+  }
+
+  // Move piece
+  state.board[toRow][toCol] = piece;
+  state.board[fromRow][fromCol] = null;
+  piece.row = toRow;
+  piece.col = toCol;
+  piece.moved = true;
+  if (piece.raging) piece.raging = false;
+
+  // Pawn promotion
+  if (piece.type==='P') {
+    if ((piece.color==='w'&&toRow===0)||(piece.color==='b'&&toRow===7)) {
+      piece.type = 'Q'; // Auto-promote to Queen
+      showMessage('♛ PAWN PROMOTED TO QUEEN!');
+    }
+  }
+
+  // Portal usage
+  if (state.portalGate && state.portalGate.player===currentPlayer &&
+      state.portalGate.row===toRow && state.portalGate.col===toCol) {
+    // Already at gate — do nothing special
+    state.portalGate = null;
+  }
+
+  // Leap: mark used if jumped
+  if (piece.ability?.id==='leap' && !isUsed(piece,'leap')) {
+    const dr=Math.sign(toRow-fromRow), dc=Math.sign(toCol-fromCol);
+    const mr=fromRow+dr, mc=fromCol+dc;
+    if (state.board[mr]?.[mc] || (mr!==toRow&&mc!==toCol)) markUsed(piece,'leap');
+  }
+
+  // Record last move
+  state.lastMove = { fromRow, fromCol, toRow, toCol };
+
+  // Blink return
+  if (piece.blinkOrigin) {
+    piece.blinkOrigin = null; // cleared on next move
+  }
+
+  // Tick walls
+  state.walls = state.walls.map(w=>({...w,turnsLeft:w.turnsLeft-1})).filter(w=>w.turnsLeft>0);
+
+  // Tick stun
+  state.stunned = state.stunned.map(s=>({...s,turnsLeft:s.turnsLeft-1})).filter(s=>s.turnsLeft>0);
+  // Apply stun to pieces
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const p = state.board[r][c];
+    if (p && p.stunTurns>0) p.stunTurns--;
+  }
+
+  // Gravity effect
+  applyGravityEffect();
+
+  // Check if game over
+  const enemyColor = currentPlayer===1?'b':'w';
+  state.selectedCell = null;
+  state.validMoves = [];
+  state.abilityMode = false;
+
+  const inCheck = isInCheck(enemyColor);
+  const hasNoMoves = !hasAnyMoves(enemyColor);
+
+  if (hasNoMoves) {
+    if (inCheck) {
+      endGame(`CHECKMATE! PLAYER ${currentPlayer} WINS!`);
+    } else {
+      endGame('STALEMATE! DRAW!');
+    }
+    return;
+  }
+
+  // Show check ability btn
+  document.getElementById('use-ability-btn').style.display = 'none';
+  const currentPieces = getAllPieces(currentPlayer===1?'w':'b'); // next player
+  // actually check current player pieces for usable active abilities...
+
+  // Next turn
+  state.currentPlayer = enemyPlayer;
+  state.turn++;
+  state.rageActive[currentPlayer] = false;
+
+  // Show rotate screen
+  showRotateScreen(
+    `PLAYER ${enemyPlayer} — YOUR TURN`,
+    'Tap READY when the other player has looked away.',
+    () => {
+      showScreen('game-screen');
+      renderGame();
+    },
+    enemyPlayer===1?'neon-blue':'neon-red'
+  );
+}
+
+function handleCapture(attacker, target, attackerPlayer, defenderPlayer) {
+  // Luck: 50% survive
+  if (target.ability?.id==='luck' && Math.random()<0.5) {
+    showMessage(`🍀 LUCK! ${PIECE_NAMES[target.type]} survived!`);
+    return false;
+  }
+  // Shield
+  if (target.ability?.id==='shield' && !target.shieldUsed) {
+    target.shieldUsed = true;
+    showMessage(`🛡 SHIELD absorbed the hit!`);
+    return false;
+  }
+  // Mirror: attacker dies too
+  if (target.ability?.id==='mirror') {
+    showMessage(`🪞 MIRROR! Both pieces destroyed!`);
+    state.capturedBy[defenderPlayer].push(attacker.color+attacker.type);
+    state.board[attacker.row][attacker.col] = null;
+    // attacker removed
+  }
+  // Kamikaze explosion
+  if (target.ability?.id==='kamikaze') {
+    showMessage(`💥 KAMIKAZE! 3×3 EXPLOSION!`);
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+      const nr=target.row+dr, nc=target.col+dc;
+      if (nr<0||nr>7||nc<0||nc>7) continue;
+      const p = state.board[nr][nc];
+      if (p && !(p.type==='K')) {
+        state.capturedBy[p.color==='w'?2:1].push(p.color+p.type);
+        state.board[nr][nc] = null;
+      }
+    }
+    return true;
+  }
+  // Voodoo: damage to King
+  if (target.ability?.id==='voodoo') {
+    state.kingHP[defenderPlayer]--;
+    showMessage(`🪆 VOODOO! Enemy King loses HP (${state.kingHP[defenderPlayer]} left)`);
+    if (state.kingHP[defenderPlayer]<=0) {
+      endGame(`PLAYER ${attackerPlayer} WINS via VOODOO!`);
+    }
+  }
+  // Curse: mark
+  if (attacker.ability?.id==='curse') {
+    target.cursed = true;
+  }
+  // Medic revival
+  if (attacker.ability?.id==='medic' && !target.cursed) {
+    const myCaptured = state.capturedBy[attackerPlayer];
+    const pawnIdx = myCaptured.findIndex(p=>p.endsWith('P'));
+    if (pawnIdx>=0) {
+      const revived = myCaptured.splice(pawnIdx,1)[0];
+      // Place near attacker if possible
+      const aColor = attacker.color;
+      for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+        const nr=attacker.row+dr, nc=attacker.col+dc;
+        if (nr<0||nr>7||nc<0||nc>7) continue;
+        if (!state.board[nr][nc]) {
+          state.board[nr][nc] = makePiece(aColor,'P',nr,nc);
+          showMessage(`💊 MEDIC revived a Pawn!`);
+          return true;
+        }
+      }
+    }
+  }
+  // Greed: earn orb if capturing Queen
+  if (attacker.ability?.id==='greed' && target.type==='Q') {
+    state.orbCount++;
+    showMessage(`💎 GREED! Extra orb earned!`);
+  }
+  // Rage: trigger on ally capture (handled elsewhere but mark)
+  triggerRageForAllies(target, defenderPlayer);
+
+  // Standard capture
+  const color = target.color; const type = target.type;
+  state.capturedBy[attackerPlayer].push(color+type);
+  if (type==='K') endGame(`PLAYER ${attackerPlayer} WINS!`);
+  return true;
+}
+
+function triggerRageForAllies(capturedPiece, capturedPlayerIndex) {
+  const color = capturedPiece.color;
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const p = state.board[r][c];
+    if (p && p.color===color && p.ability?.id==='rage') {
+      p.raging = true;
+      showMessage(`🔥 RAGE ACTIVATED!`);
+    }
+  }
+}
+
+function applyGravityEffect() {
+  // Pieces with gravity: enemies within 2 squares lose range (handled in getValidMoves via stun-like effect)
+  // We just mark a flag on them
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const p = state.board[r][c];
+    if (!p || !p.ability || p.ability.id!=='gravity') continue;
+    const enemy = p.color==='w'?'b':'w';
+    for (let dr=-2;dr<=2;dr++) for (let dc=-2;dc<=2;dc++) {
+      const nr=r+dr, nc=c+dc;
+      if (nr<0||nr>7||nc<0||nc>7) continue;
+      const n = state.board[nr][nc];
+      if (n && n.color===enemy) n.gravitySlowed = true;
+    }
+  }
+}
+
+// =====================================================
+// ACTIVE ABILITY USAGE
+// =====================================================
+function activateAbilityMode() {
+  if (!state.selectedCell) return;
+  const piece = state.board[state.selectedCell.row][state.selectedCell.col];
+  if (!piece || !piece.ability) return;
+  const ab = piece.ability;
+  const activeAbilities = ['stun','push','wind','architect','magnet','portal','teleport','timewarp','blink'];
+  if (!activeAbilities.includes(ab.id)) return;
+  if (ab.once && isUsed(piece, ab.id)) {
+    showMessage('Ability already used!');
+    return;
+  }
+  state.abilityMode = true;
+  state.abilityModeType = ab.id;
+  showMessage(`🎯 Select target for ${ab.name}`);
+  // Highlight targets
+  state.validMoves = getAbilityTargets(piece, ab.id);
+  renderBoard();
+}
+
+function getAbilityTargets(piece, abilityId) {
+  const targets = [];
+  const { row, col, color } = piece;
+  const enemy = color==='w'?'b':'w';
+  const inBounds = (r,c)=>r>=0&&r<8&&c>=0&&c<8;
+
+  if (abilityId==='stun') {
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+      if (!dr&&!dc) continue;
+      const nr=row+dr,nc=col+dc;
+      if (inBounds(nr,nc)&&state.board[nr][nc]&&state.board[nr][nc].color===enemy)
+        targets.push({row:nr,col:nc,capture:true});
+    }
+  } else if (abilityId==='push'||abilityId==='wind'||abilityId==='magnet') {
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+      if (!dr&&!dc) continue;
+      const nr=row+dr,nc=col+dc;
+      if (inBounds(nr,nc)&&state.board[nr][nc])
+        targets.push({row:nr,col:nc,capture:true});
+    }
+  } else if (abilityId==='architect') {
+    for (let dr=-1;dr<=1;dr++) for (let dc=-1;dc<=1;dc++) {
+      if (!dr&&!dc) continue;
+      const nr=row+dr,nc=col+dc;
+      if (inBounds(nr,nc)&&!state.board[nr][nc]&&!state.walls.find(w=>w.row===nr&&w.col===nc))
+        targets.push({row:nr,col:nc,capture:false});
+    }
+  } else if (abilityId==='portal') {
+    for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+      if (!state.board[r][c]) targets.push({row:r,col:c,capture:false});
+    }
+  } else if (abilityId==='teleport') {
+    // Swap with friendly pawn
+    getAllPieces(color).filter(p=>p.type==='P').forEach(p=>{
+      targets.push({row:p.row,col:p.col,capture:false});
+    });
+  } else if (abilityId==='timewarp') {
+    // Single confirm
+    targets.push({row,col,capture:false,special:'timewarp'});
+  } else if (abilityId==='blink') {
+    for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+      if (!state.board[r][c]) targets.push({row:r,col:c,capture:false});
+    }
+  }
+  return targets;
+}
+
+function handleAbilityTarget(row, col) {
+  const piece = state.board[state.selectedCell.row][state.selectedCell.col];
+  const ab = piece.ability;
+  const abilityId = state.abilityModeType;
+  state.abilityMode = false;
+  state.abilityModeType = null;
+
+  if (abilityId==='stun') {
+    const target = state.board[row][col];
+    if (target) {
+      target.stunTurns = 2;
+      showMessage(`⚡ ${PIECE_NAMES[target.type]} STUNNED for 1 turn!`);
+    }
+  } else if (abilityId==='push') {
+    const target = state.board[row][col];
+    if (target) {
+      const dr=Math.sign(row-piece.row), dc=Math.sign(col-piece.col);
+      const nr=row+dr, nc=col+dc;
+      if (nr>=0&&nr<8&&nc>=0&&nc<8&&!state.board[nr][nc]) {
+        state.board[nr][nc]=target; state.board[row][col]=null;
+        target.row=nr; target.col=nc;
+        showMessage(`👊 PUSH!`);
+      }
+    }
+  } else if (abilityId==='wind') {
+    const target = state.board[row][col];
+    if (target) {
+      const dirs=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+      const avail = dirs.filter(([dr,dc])=>{
+        const nr=row+dr,nc=col+dc;
+        return nr>=0&&nr<8&&nc>=0&&nc<8&&!state.board[nr][nc];
+      });
+      if (avail.length) {
+        const [dr,dc]=avail[Math.floor(Math.random()*avail.length)];
+        state.board[row+dr][col+dc]=target; state.board[row][col]=null;
+        target.row=row+dr; target.col=col+dc;
+        showMessage(`🌬 WIND blew the piece!`);
+      }
+    }
+  } else if (abilityId==='architect') {
+    state.walls.push({row,col,turnsLeft:2});
+    markUsed(piece,'architect');
+    showMessage(`🧱 WALL placed for 2 turns!`);
+  } else if (abilityId==='portal') {
+    state.portalGate = {row,col,player:state.currentPlayer};
+    markUsed(piece,'portal');
+    showMessage(`🌀 PORTAL set! Move there to activate.`);
+  } else if (abilityId==='teleport') {
+    const target = state.board[row][col];
+    if (target && target.type==='P' && target.color===piece.color) {
+      const pr=piece.row, pc=piece.col;
+      state.board[target.row][target.col]=piece; piece.row=target.row; piece.col=target.col;
+      state.board[pr][pc]=target; target.row=pr; target.col=pc;
+      markUsed(piece,'teleport');
+      showMessage(`✨ TELEPORT!`);
+    }
+  } else if (abilityId==='timewarp') {
+    if (state.prevBoard && !isUsed(piece,'timewarp')) {
+      state.board = state.prevBoard;
+      state.capturedBy = state.prevCaptured;
+      state.turn = Math.max(1,state.turn-1);
+      markUsed(piece,'timewarp');
+      showMessage(`⏪ TIME WARP! Move undone!`);
+    }
+  } else if (abilityId==='blink') {
+    if (!isUsed(piece,'blink')) {
+      piece.blinkOrigin = {row:piece.row, col:piece.col};
+      state.board[row][col]=piece; state.board[piece.row][piece.col]=null;
+      piece.row=row; piece.col=col;
+      markUsed(piece,'blink');
+      showMessage(`👁 BLINK! Will return next turn.`);
+    }
+  } else if (abilityId==='magnet') {
+    const target = state.board[row][col];
+    if (target) {
+      const dr=Math.sign(piece.row-row), dc=Math.sign(piece.col-col);
+      const nr=row+dr, nc=col+dc;
+      if (nr>=0&&nr<8&&nc>=0&&nc<8&&!state.board[nr][nc]) {
+        state.board[nr][nc]=target; state.board[row][col]=null;
+        target.row=nr; target.col=nc;
+        showMessage(`🧲 MAGNET pulled!`);
+      }
+    }
+  }
+
+  state.validMoves = [];
+  state.selectedCell = null;
+  renderGame();
+}
+
+// =====================================================
+// CHECK DETECTION
+// =====================================================
+function isInCheck(color) {
+  const king = findPiece(color,'K');
+  if (!king) return false;
+  const enemy = color==='w'?'b':'w';
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const p = state.board[r][c];
+    if (!p||p.color!==enemy) continue;
+    const moves = getValidMoves(p);
+    if (moves.some(m=>m.row===king.row&&m.col===king.col&&m.capture)) return true;
+  }
+  return false;
+}
+
+function hasAnyMoves(color) {
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    const p = state.board[r][c];
+    if (!p||p.color!==color) continue;
+    const moves = getValidMoves(p);
+    if (moves.length>0) return true;
+  }
+  return false;
+}
+
+// =====================================================
+// UTILS
+// =====================================================
+function deepCloneBoard() {
+  return state.board.map(row => row.map(cell => cell ? {...cell} : null));
+}
+
+function showMessage(msg) {
+  const el = document.getElementById('game-message');
+  if (!el) return;
+  el.textContent = msg;
+  setTimeout(()=>{if(el.textContent===msg)el.textContent='';},3000);
+}
+
+function endGame(msg) {
+  state.gamePhase = 'over';
+  showModal('GAME OVER', msg, [
+    { text:'NEW GAME', action: confirmNewGame, cls:'btn-blue' }
+  ]);
+}
+
+function confirmNewGame() {
+  hideModal();
+  showScreen('start-screen');
+  state.gamePhase = 'start';
+}
+
+// =====================================================
+// TOOLTIP
+// =====================================================
+function showTooltip(e, ab) {
+  const t = document.getElementById('ability-tooltip');
+  t.innerHTML = `
+    <div style="font-size:0.85rem;font-weight:600;color:${CAT_COLORS[ab.cat]};margin-bottom:4px;">${ab.icon} ${ab.name}</div>
+    <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">${ab.cat}${ab.once?' • ONCE/GAME':''}</div>
+    <div style="font-size:0.75rem;line-height:1.5;">${ab.desc}</div>
+  `;
+  t.style.display = 'block';
+  moveTooltip(e);
+}
+
+document.addEventListener('mousemove', e => {
+  if (document.getElementById('ability-tooltip').style.display==='block') moveTooltip(e);
+});
+
+function moveTooltip(e) {
+  const t = document.getElementById('ability-tooltip');
+  let x = e.clientX+12, y = e.clientY+12;
+  if (x+260>window.innerWidth) x=e.clientX-260;
+  if (y+120>window.innerHeight) y=e.clientY-120;
+  t.style.left=x+'px'; t.style.top=y+'px';
+}
+
+function hideTooltip() {
+  document.getElementById('ability-tooltip').style.display='none';
+}
+
+// =====================================================
+// MODAL
+// =====================================================
+function showModal(title, body, buttons) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').textContent = body;
+  const btns = document.getElementById('modal-buttons');
+  btns.innerHTML = '';
+  buttons.forEach(b => {
+    const btn = document.createElement('button');
+    btn.className = 'btn ' + b.cls;
+    btn.textContent = b.text;
+    btn.onclick = b.action;
+    btns.appendChild(btn);
+  });
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function hideModal() {
+  document.getElementById('modal').style.display = 'none';
+}
+
+// =====================================================
+// SCREEN MANAGEMENT
+// =====================================================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// =====================================================
+// SACRIFICE ABILITY (check intercept)
+// =====================================================
+// When in check, if player has a sacrifice piece, offer it
+function checkSacrificeOffer() {
+  const color = state.currentPlayer===1?'w':'b';
+  if (!isInCheck(color)) return;
+  const sacrificer = getAllPieces(color).find(p=>p.ability?.id==='sacrifice'&&!isUsed(p,'sacrifice'));
+  if (sacrificer) {
+    showModal('CHECK!', `Use ${PIECE_SYMBOLS[sacrificer.color+sacrificer.type]} Sacrifice to block the check?`, [
+      { text:'SACRIFICE', action:()=>{ useSacrifice(sacrificer); hideModal(); }, cls:'btn-red' },
+      { text:'IGNORE', action:hideModal, cls:'btn-ghost' }
+    ]);
+  }
+}
+
+function useSacrifice(piece) {
+  markUsed(piece,'sacrifice');
+  state.board[piece.row][piece.col]=null;
+  showMessage(`💀 SACRIFICE! ${PIECE_NAMES[piece.type]} blocked the check!`);
+  renderGame();
+}
+
+// =====================================================
+// INIT
+// =====================================================
+setFog(true);
+showScreen('start-screen');
+</script>
+</body>
+</html>

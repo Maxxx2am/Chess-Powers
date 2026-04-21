@@ -1,0 +1,9 @@
+{
+  "name": "chess-deception-augmentation",
+  "version": "1.0.0",
+  "description": "Tactical Chess Game",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve ."
+  }
+}
