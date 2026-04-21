@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
-<script src="/socket.io/socket.io.js"></script>
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CHESS: DECEPTION & AUGMENTATION</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="/socket.io/socket.io.js"></script>
 <style>
   :root {
     --p1: #00d4ff;
@@ -352,8 +353,11 @@
       </div>
     </div>
 
-    <button class="btn btn-blue" onclick="startArmory()" style="width:100%; font-size:0.85rem; padding:14px;">
-      ▶ ENTER THE ARMORY
+    <button class="btn btn-blue" onclick="startArmory()" style="width:100%; font-size:0.85rem; padding:14px; margin-bottom:12px;">
+      ▶ ENTER THE ARMORY (LOCAL)
+    </button>
+    <button class="btn btn-red" onclick="joinMultiplayer()" style="width:100%; font-size:0.85rem; padding:14px;">
+      🌐 JOIN MULTIPLAYER
     </button>
   </div>
 
@@ -473,14 +477,72 @@
 <!-- TOOLTIP -->
 <div id="ability-tooltip"></div>
 
+<script>
+// =====================================================
+// MULTIPLAYER LOGIC
+// =====================================================
 const socket = io();
+let myRole = null; // 'w', 'b', or 'spectator'
+let gameRoom = 'default';
+let isMultiplayer = false;
 
-socket.on('move', (data) => {
-    // This allows the move from your friend to happen on your screen
-    executeMove(data.fromRow, data.fromCol, data.toRow, data.toCol, data.moveData, true);
+function joinMultiplayer() {
+  const room = prompt("Enter Room ID (or leave empty for default):", "default") || "default";
+  gameRoom = room;
+  isMultiplayer = true;
+  socket.emit('joinGame', room);
+  showModal('CONNECTING', 'Waiting for opponent...', []);
+}
+
+socket.on('roleAssign', (role) => {
+  myRole = role;
+  console.log('My role is:', myRole);
+  if (role === 'spectator') {
+    showMessage('Spectating mode');
+  }
 });
 
-<script>
+socket.on('playerJoined', (count) => {
+  if (count >= 2 && state.gamePhase === 'start') {
+    hideModal();
+    startArmory();
+  } else if (count < 2 && isMultiplayer && state.gamePhase !== 'start') {
+    showMessage('Opponent disconnected');
+  }
+});
+
+socket.on('move', (data) => {
+  console.log('Received move:', data);
+  // Re-execute move locally without emitting
+  const vm = data.moveData;
+  executeMoveLocal(data.fromRow, data.fromCol, data.toRow, data.toCol, vm, data.luckSuccess);
+});
+
+socket.on('abilityAction', (data) => {
+  console.log('Received ability action:', data);
+  handleAbilityTargetLocal(data.row, data.col, data.pieceId, data.abilityId, data.windDirIdx);
+});
+
+socket.on('syncSetup', (data) => {
+  console.log('Received setup sync:', data);
+  state.armoryDraft[data.player] = data.draft;
+  state.orbsUsed[data.player] = data.orbs;
+  if (data.player === 1 && myRole === 'b') {
+    // If I'm Black and White finished setup, I can start mine or wait
+  }
+  if (state.orbsUsed[1] > 0 && state.orbsUsed[2] > 0) {
+    // Both done? 
+    // In multiplayer, finishSetup will handle this
+  }
+});
+
+socket.on('startPlay', (data) => {
+    state.armoryDraft = data.armoryDraft;
+    state.orbCount = data.orbCount;
+    state.fogEnabled = data.fogEnabled;
+    initGameLocal();
+});
+
 // =====================================================
 // ABILITIES DATA
 // =====================================================
@@ -736,6 +798,20 @@ function clearPieceAbility() {
 }
 
 function finishSetup() {
+  if (isMultiplayer) {
+    const p = myRole === 'w' ? 1 : 2;
+    socket.emit('syncSetup', { room: gameRoom, player: p, draft: state.armoryDraft[p], orbs: state.orbsUsed[p] });
+    
+    if (state.orbsUsed[1] > 0 && state.orbsUsed[2] > 0) {
+       // Start game for everyone if I'm the one who finished last
+       socket.emit('gameStateUpdate', { room: gameRoom, armoryDraft: state.armoryDraft, orbCount: state.orbCount, fogEnabled: state.fogEnabled });
+       initGame();
+    } else {
+       showModal('WAITING', 'Waiting for opponent to finish setup...', []);
+    }
+    return;
+  }
+
   if (state.currentArmoryPlayer === 1) {
     state.currentArmoryPlayer = 2;
     showRotateScreen('PASS THE DEVICE', 'Player 2, do not look until Player 1 steps away.', () => {
@@ -755,6 +831,10 @@ function finishSetup() {
 let rotateCallback = null;
 
 function showRotateScreen(title, sub, cb, titleClass='') {
+  if (isMultiplayer) {
+    cb(); // Skip rotate screen in multiplayer
+    return;
+  }
   rotateCallback = cb;
   document.getElementById('rotate-title').textContent = title;
   document.getElementById('rotate-title').className = 'orb ' + titleClass;
@@ -774,6 +854,13 @@ function confirmReady() {
 // GAME INITIALIZATION
 // =====================================================
 function initGame() {
+  if (isMultiplayer && state.orbsUsed[1] > 0 && state.orbsUsed[2] > 0) {
+    socket.emit('gameStateUpdate', { room: gameRoom, armoryDraft: state.armoryDraft, orbCount: state.orbCount, fogEnabled: state.fogEnabled, start: true });
+  }
+  initGameLocal();
+}
+
+function initGameLocal() {
   state.board = createInitialBoard();
   state.currentPlayer = 1;
   state.turn = 1;
@@ -796,6 +883,7 @@ function initGame() {
   assignAbilitiesToBoard();
   showScreen('game-screen');
   renderGame();
+  hideModal();
 }
 
 function createInitialBoard() {
@@ -831,23 +919,6 @@ function makePiece(color, type, row, col) {
 
 function assignAbilitiesToBoard() {
   // Map draft keys to actual pieces
-  const keyToPiece = (player, key) => {
-    const color = player === 1 ? 'w' : 'b';
-    const row = player === 1 ? 7 : 0;
-    const pawnRow = player === 1 ? 6 : 1;
-
-    if (key === color+'K') return findPiece(color,'K');
-    if (key === color+'Q') return findPiece(color,'Q');
-    if (key.startsWith(color+'R')) { const rs = findPieces(color,'R'); return rs[key===color+'R'?0:0] || rs[0]; }
-    if (key.startsWith(color+'B')) { const bs = findPieces(color,'B'); return bs[0]; }
-    if (key.startsWith(color+'N')) { const ns = findPieces(color,'N'); return ns[0]; }
-    if (key.startsWith(color+'P')) {
-      const idx = parseInt(key.slice(-1)) - 1;
-      const pawns = findPieces(color,'P');
-      return pawns[idx] || pawns[0];
-    }
-  };
-
   [1,2].forEach(p => {
     Object.entries(state.armoryDraft[p]).forEach(([key, ab]) => {
       const color = p === 1 ? 'w' : 'b';
@@ -868,7 +939,8 @@ function assignAbilitiesToBoard() {
         piece.ability = ab;
         if (ab.id === 'imposter') {
           const enemyTypes = ['Q','R','B','N'];
-          piece.imposterType = enemyTypes[Math.floor(Math.random()*enemyTypes.length)];
+          // Use piece ID to make it deterministic across clients
+          piece.imposterType = enemyTypes[piece.id % enemyTypes.length];
         }
       }
     });
@@ -1071,6 +1143,25 @@ function renderGame() {
   renderBoard();
   renderSidebars();
   renderTurnIndicator();
+
+  // Toggle use-ability-btn
+  const abilityBtn = document.getElementById('use-ability-btn');
+  if (state.selectedCell) {
+    const piece = state.board[state.selectedCell.row][state.selectedCell.col];
+    const activeAbilities = ['stun','push','wind','architect','magnet','portal','teleport','timewarp','blink'];
+    if (piece && piece.ability && activeAbilities.includes(piece.ability.id)) {
+      abilityBtn.style.display = 'block';
+      if (piece.ability.once && isUsed(piece, piece.ability.id)) {
+        abilityBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      } else {
+        abilityBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+    } else {
+      abilityBtn.style.display = 'none';
+    }
+  } else {
+    abilityBtn.style.display = 'none';
+  }
 }
 
 function renderBoard() {
@@ -1263,6 +1354,12 @@ function renderTurnIndicator() {
 function onCellClick(row, col) {
   if (state.gamePhase !== 'game') return;
 
+  // Multiplayer turn check
+  if (isMultiplayer) {
+    if (state.currentPlayer === 1 && myRole !== 'w') return;
+    if (state.currentPlayer === 2 && myRole !== 'b') return;
+  }
+
   // Ability mode
   if (state.abilityMode) {
     handleAbilityTarget(row, col);
@@ -1315,15 +1412,48 @@ function showPieceInfo(piece) {
 // =====================================================
 // MOVE EXECUTION
 // =====================================================
-function executeMove(fromRow, fromCol, toRow, toCol, moveData, isRemote = false) {
-  if (!isRemote) {
-    socket.emit('move', { fromRow, fromCol, toRow, toCol, moveData });
+function executeMove(fromRow, fromCol, toRow, toCol, moveData) {
+  let luckSuccess = null;
+  const target = state.board[toRow][toCol];
+  if (target && target.ability?.id === 'luck') {
+    luckSuccess = Math.random() < 0.5;
   }
+  
+  if (isMultiplayer) {
+    socket.emit('move', { room: gameRoom, fromRow, fromCol, toRow, toCol, moveData, luckSuccess });
+  }
+  executeMoveLocal(fromRow, fromCol, toRow, toCol, moveData, luckSuccess);
+}
+
+function executeMoveLocal(fromRow, fromCol, toRow, toCol, moveData, luckSuccess) {
+  // 1. BLINK RETURN LOGIC
+  // Before current player moves, any of THEIR pieces that blinked must return
+  const color = state.currentPlayer === 1 ? 'w' : 'b';
+  for (let r=0; r<8; r++) for (let c=0; c<8; c++) {
+    const p = state.board[r][c];
+    if (p && p.color === color && p.blinkOrigin) {
+      const {row: or, col: oc} = p.blinkOrigin;
+      // If origin is free, return. If not, stays where it is? 
+      // Rule says "return next turn", usually implies it just happens.
+      if (!state.board[or][oc]) {
+        state.board[or][oc] = p;
+        state.board[r][c] = null;
+        p.row = or; p.col = oc;
+        p.blinkOrigin = null;
+        showMessage('👁 BLINK returned!');
+      } else {
+        p.blinkOrigin = null; // blocked, stay at blink spot
+      }
+    }
+  }
+
   // Save state for undo
   state.prevBoard = deepCloneBoard();
   state.prevCaptured = { 1:[...state.capturedBy[1]], 2:[...state.capturedBy[2]] };
 
   const piece = state.board[fromRow][fromCol];
+  if (!piece) return; // Should not happen
+
   const target = state.board[toRow][toCol];
   const currentPlayer = state.currentPlayer;
   const enemyPlayer = currentPlayer === 1 ? 2 : 1;
@@ -1332,10 +1462,21 @@ function executeMove(fromRow, fromCol, toRow, toCol, moveData, isRemote = false)
   if (moveData.abilityMove === 'retreat') markUsed(piece,'retreat');
   if (moveData.abilityMove === 'sniper') markUsed(piece,'sniper');
 
+  // 2. SNIPER LOGIC
+  if (moveData.abilityMove === 'sniper') {
+    if (target) {
+      handleCapture(piece, target, currentPlayer, enemyPlayer, luckSuccess);
+      state.board[toRow][toCol] = null;
+    }
+    // Sniper stays put, but turn still ends
+    finishTurn(enemyPlayer);
+    return;
+  }
+
   // Capture logic
   let actualCapture = target !== null;
   if (actualCapture) {
-    const captureResult = handleCapture(piece, target, currentPlayer, enemyPlayer);
+    const captureResult = handleCapture(piece, target, currentPlayer, enemyPlayer, luckSuccess);
     if (!captureResult) return; // Move blocked
   }
 
@@ -1372,7 +1513,6 @@ function executeMove(fromRow, fromCol, toRow, toCol, moveData, isRemote = false)
   // Portal usage
   if (state.portalGate && state.portalGate.player===currentPlayer &&
       state.portalGate.row===toRow && state.portalGate.col===toCol) {
-    // Already at gate — do nothing special
     state.portalGate = null;
   }
 
@@ -1386,17 +1526,16 @@ function executeMove(fromRow, fromCol, toRow, toCol, moveData, isRemote = false)
   // Record last move
   state.lastMove = { fromRow, fromCol, toRow, toCol };
 
-  // Blink return
-  if (piece.blinkOrigin) {
-    piece.blinkOrigin = null; // cleared on next move
-  }
+  finishTurn(enemyPlayer);
+}
 
+function finishTurn(enemyPlayer) {
+  const currentPlayer = state.currentPlayer;
+  
   // Tick walls
   state.walls = state.walls.map(w=>({...w,turnsLeft:w.turnsLeft-1})).filter(w=>w.turnsLeft>0);
 
   // Tick stun
-  state.stunned = state.stunned.map(s=>({...s,turnsLeft:s.turnsLeft-1})).filter(s=>s.turnsLeft>0);
-  // Apply stun to pieces
   for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
     const p = state.board[r][c];
     if (p && p.stunTurns>0) p.stunTurns--;
@@ -1423,17 +1562,11 @@ function executeMove(fromRow, fromCol, toRow, toCol, moveData, isRemote = false)
     return;
   }
 
-  // Show check ability btn
-  document.getElementById('use-ability-btn').style.display = 'none';
-  const currentPieces = getAllPieces(currentPlayer===1?'w':'b'); // next player
-  // actually check current player pieces for usable active abilities...
-
   // Next turn
   state.currentPlayer = enemyPlayer;
   state.turn++;
   state.rageActive[currentPlayer] = false;
 
-  // Show rotate screen
   showRotateScreen(
     `PLAYER ${enemyPlayer} — YOUR TURN`,
     'Tap READY when the other player has looked away.',
@@ -1622,8 +1755,38 @@ function getAbilityTargets(piece, abilityId) {
 
 function handleAbilityTarget(row, col) {
   const piece = state.board[state.selectedCell.row][state.selectedCell.col];
-  const ab = piece.ability;
-  const abilityId = state.abilityModeType;
+  let windDirIdx = null;
+  if (state.abilityModeType === 'wind') {
+    const target = state.board[row][col];
+    if (target) {
+      const dirs=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+      const avail = dirs.filter(([dr,dc])=>{
+        const nr=row+dr,nc=col+dc;
+        return nr>=0&&nr<8&&nc>=0&&nc<8&&!state.board[nr][nc];
+      });
+      if (avail.length) {
+        windDirIdx = Math.floor(Math.random() * avail.length);
+      }
+    }
+  }
+
+  if (isMultiplayer) {
+    socket.emit('abilityAction', { room: gameRoom, row, col, pieceId: piece.id, abilityId: state.abilityModeType, windDirIdx });
+  }
+  handleAbilityTargetLocal(row, col, piece.id, state.abilityModeType, windDirIdx);
+}
+
+function handleAbilityTargetLocal(row, col, pieceId, abilityId, windDirIdx) {
+  // Find piece by ID because board might have changed slightly or to be safe
+  let piece = null;
+  for (let r=0;r<8;r++) for (let c=0;c<8;c++) {
+    if (state.board[r][c] && state.board[r][c].id === pieceId) {
+      piece = state.board[r][c];
+      break;
+    }
+  }
+  if (!piece) return;
+
   state.abilityMode = false;
   state.abilityModeType = null;
 
@@ -1652,8 +1815,8 @@ function handleAbilityTarget(row, col) {
         const nr=row+dr,nc=col+dc;
         return nr>=0&&nr<8&&nc>=0&&nc<8&&!state.board[nr][nc];
       });
-      if (avail.length) {
-        const [dr,dc]=avail[Math.floor(Math.random()*avail.length)];
+      if (avail.length && windDirIdx !== null) {
+        const [dr,dc]=avail[windDirIdx % avail.length];
         state.board[row+dr][col+dc]=target; state.board[row][col]=null;
         target.row=row+dr; target.col=col+dc;
         showMessage(`🌬 WIND blew the piece!`);
@@ -1680,9 +1843,11 @@ function handleAbilityTarget(row, col) {
     if (state.prevBoard && !isUsed(piece,'timewarp')) {
       state.board = state.prevBoard;
       state.capturedBy = state.prevCaptured;
-      state.turn = Math.max(1,state.turn-1);
+      // It stays my turn, we just reverted the board
       markUsed(piece,'timewarp');
       showMessage(`⏪ TIME WARP! Move undone!`);
+      renderGame();
+      return; // Don't finish turn
     }
   } else if (abilityId==='blink') {
     if (!isUsed(piece,'blink')) {
@@ -1707,7 +1872,8 @@ function handleAbilityTarget(row, col) {
 
   state.validMoves = [];
   state.selectedCell = null;
-  renderGame();
+  const enemyPlayer = state.currentPlayer === 1 ? 2 : 1;
+  finishTurn(enemyPlayer);
 }
 
 // =====================================================
